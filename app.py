@@ -4,6 +4,8 @@ from fpdf import FPDF
 import tempfile
 import os
 import glob
+import re
+from unidecode import unidecode  # Para eliminar tildes en la búsqueda (instalar con: pip install unidecode)
 
 st.set_page_config(page_title="Gestión de Pedidos", layout="wide", initial_sidebar_state="expanded")
 
@@ -18,7 +20,7 @@ if 'carrito' not in st.session_state:
 # ------------------------------------------------------------
 @st.cache_data
 def load_databases():
-    # Cargar clientes (debe existir DB_Clientes_Limpia.xlsx)
+    # Cargar clientes
     try:
         df_cli = pd.read_excel("DB_Clientes_Limpia.xlsx")
     except FileNotFoundError:
@@ -37,7 +39,6 @@ def load_databases():
     for file in product_files:
         try:
             df = pd.read_excel(file)
-            # Normalizar columnas según el archivo
             df = standardize_product_columns(df, file)
             dfs.append(df)
         except FileNotFoundError:
@@ -75,7 +76,7 @@ def load_databases():
                 df_of_limpio = df_of[[col_codigo, col_precio]].copy()
                 df_of_limpio.columns = ['Codigo', 'Precio_Promocional']
 
-                # 🔴 REGLA CLAVE: Forzar el mismo formato de texto en las Ofertas
+                # Forzar formato de texto
                 df_of_limpio['Codigo'] = df_of_limpio['Codigo'].astype(str).str.strip()
                 df_of_limpio['Precio_Promocional'] = pd.to_numeric(df_of_limpio['Precio_Promocional'], errors='coerce').fillna(0)
 
@@ -98,34 +99,32 @@ def load_databases():
 def standardize_product_columns(df, filename):
     """
     Convierte las columnas de cada archivo a un esquema común:
-    'Codigo', 'Descripcion', 'Modelo', 'Marca', 'Precio_Lista', 'IVA'
+    'Codigo', 'Descripcion', 'Modelo', 'Marca', 'Precio_Lista', 'IVA', 'Hoja_Origen'
     """
     # Renombrar según el archivo
     if "KWB" in filename:
-        # Columnas: Codigo, Nombre, Descripcion, Precio_Lista, IVA, Marca, Hoja_Origen
         df = df.rename(columns={
             'Nombre': 'Modelo'
         })
-        # Asegurar que existan todas las columnas necesarias
-        for col in ['Codigo', 'Descripcion', 'Modelo', 'Marca', 'Precio_Lista', 'IVA']:
+        for col in ['Codigo', 'Descripcion', 'Modelo', 'Marca', 'Precio_Lista', 'IVA', 'Hoja_Origen']:
             if col not in df.columns:
                 df[col] = None
     elif "Einhell" in filename:
-        # Columnas: Codigo, Herramienta, Modelo, Descripcion, Precio_Lista, IVA, Hoja_Origen, Marca
-        # Ya tiene todo
+        # Ya tiene todas las columnas, pero asegurar que Hoja_Origen exista
+        if 'Hoja_Origen' not in df.columns:
+            df['Hoja_Origen'] = 'Einhell'
+        # La columna 'Marca' ya existe
         pass
     elif "Fijaciones" in filename:
-        # Columnas: Codigo, Descripcion, CantidadPorCaja, Embalaje, UnidadPrecio, PrecioLista, IVA, Hoja_Origen
         df = df.rename(columns={
             'PrecioLista': 'Precio_Lista'
         })
-        # No tiene Modelo -> lo dejamos vacío o copiamos de Descripcion
-        df['Modelo'] = df['Descripcion']  # o ''
-        # Asegurar Marca
+        df['Modelo'] = df['Descripcion']
         if 'Marca' not in df.columns:
             df['Marca'] = 'Fijaciones'
+        if 'Hoja_Origen' not in df.columns:
+            df['Hoja_Origen'] = 'Fijaciones'
     elif "Penosil" in filename:
-        # Columnas: Artículo, Nombre, Descripcion, Color, Presentacion, PrecioLista, IVA, Hoja_Origen
         df = df.rename(columns={
             'Artículo': 'Codigo',
             'Nombre': 'Modelo',
@@ -133,22 +132,26 @@ def standardize_product_columns(df, filename):
         })
         if 'Marca' not in df.columns:
             df['Marca'] = 'Penosil'
+        if 'Hoja_Origen' not in df.columns:
+            df['Hoja_Origen'] = 'Penosil'
     else:
-        # Intento genérico: buscar columnas comunes
+        # Intento genérico
         if 'PrecioLista' in df.columns:
             df = df.rename(columns={'PrecioLista': 'Precio_Lista'})
         if 'Artículo' in df.columns:
             df = df.rename(columns={'Artículo': 'Codigo'})
         if 'Nombre' in df.columns and 'Modelo' not in df.columns:
             df['Modelo'] = df['Nombre']
+        if 'Hoja_Origen' not in df.columns:
+            df['Hoja_Origen'] = 'Desconocido'
 
-    # Asegurar que las columnas requeridas existan (con valores por defecto si faltan)
-    required = ['Codigo', 'Descripcion', 'Modelo', 'Marca', 'Precio_Lista', 'IVA']
+    # Asegurar que las columnas requeridas existan
+    required = ['Codigo', 'Descripcion', 'Modelo', 'Marca', 'Precio_Lista', 'IVA', 'Hoja_Origen']
     for col in required:
         if col not in df.columns:
             df[col] = None
 
-    # Convertir IVA a numérico (por si viene como string)
+    # Convertir IVA a numérico
     df['IVA'] = pd.to_numeric(df['IVA'], errors='coerce').fillna(0.21)
 
     return df
@@ -184,33 +187,66 @@ else:
 st.markdown("---")
 
 # ------------------------------------------------------------
-# 3. CATÁLOGO Y AGREGADO AL CARRITO
+# 3. CATÁLOGO Y AGREGADO AL CARRITO (CON BUSCADOR MEJORADO)
 # ------------------------------------------------------------
 st.subheader("2. Catálogo de Productos")
 
 col_f1, col_f2 = st.columns(2)
 marcas_disponibles = sorted(df_productos['Marca'].dropna().unique())
 marca_filtro = col_f1.selectbox("Filtrar por Línea / Marca:", options=["Todas"] + marcas_disponibles)
-busqueda = col_f2.text_input("🔍 Buscar por Código, Modelo o Descripción:")
+busqueda = col_f2.text_input("🔍 Buscar por Código, Modelo, Descripción o Marca:")
 
 df_filtrado = df_productos.copy()
 if marca_filtro != "Todas":
     df_filtrado = df_filtrado[df_filtrado['Marca'] == marca_filtro]
 
 if busqueda:
-    b_up = busqueda.upper()
-    df_filtrado = df_filtrado[
-        df_filtrado['Codigo'].astype(str).str.upper().str.contains(b_up) |
-        df_filtrado['Modelo'].astype(str).str.upper().str.contains(b_up) |
-        df_filtrado['Descripcion'].astype(str).str.upper().str.contains(b_up)
-    ]
+    # Normalizar búsqueda: eliminar tildes, mayúsculas, dividir en palabras
+    palabras = [unidecode(p).lower() for p in busqueda.split()]
+    # Crear columnas normalizadas para búsqueda
+    df_filtrado['Codigo_norm'] = df_filtrado['Codigo'].astype(str).apply(lambda x: unidecode(x).lower())
+    df_filtrado['Modelo_norm'] = df_filtrado['Modelo'].astype(str).apply(lambda x: unidecode(x).lower())
+    df_filtrado['Descripcion_norm'] = df_filtrado['Descripcion'].astype(str).apply(lambda x: unidecode(x).lower())
+    df_filtrado['Marca_norm'] = df_filtrado['Marca'].astype(str).apply(lambda x: unidecode(x).lower())
+
+    # Función para verificar si todas las palabras están en al menos un campo
+    def matches_all(row):
+        text = f"{row['Codigo_norm']} {row['Modelo_norm']} {row['Descripcion_norm']} {row['Marca_norm']}"
+        return all(p in text for p in palabras)
+
+    mask = df_filtrado.apply(matches_all, axis=1)
+    df_filtrado = df_filtrado[mask]
+
+    # Ordenar por relevancia: primero los que coinciden en código, luego modelo, luego descripción
+    def relevance_score(row):
+        score = 0
+        cod = row['Codigo_norm']
+        mod = row['Modelo_norm']
+        desc = row['Descripcion_norm']
+        # Ponderación: coincidencia en código es más relevante
+        for p in palabras:
+            if p in cod:
+                score += 10
+            if p in mod:
+                score += 5
+            if p in desc:
+                score += 1
+        return score
+
+    df_filtrado['Relevance'] = df_filtrado.apply(relevance_score, axis=1)
+    df_filtrado = df_filtrado.sort_values('Relevance', ascending=False)
+    # Eliminar columnas auxiliares
+    df_filtrado = df_filtrado.drop(columns=['Codigo_norm', 'Modelo_norm', 'Descripcion_norm', 'Marca_norm', 'Relevance'])
 
 st.markdown("##### Agregar al Pedido")
 if not df_filtrado.empty:
     def format_display(row):
         precio = row['Precio_Oferta'] if row['Es_Oferta'] else row['Precio_Lista']
-        etiqueta = "🔥 OFERTA NETO | " if row['Es_Oferta'] else ""
-        return f"{etiqueta}{row['Codigo']} | {row['Descripcion']} | ${precio:,.2f}"
+        etiqueta = "🔥 OFERTA " if row['Es_Oferta'] else ""
+        # Si es de baterías, agregar un indicador
+        if row.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(row['Hoja_Origen']).upper():
+            etiqueta += "🔋 BATERÍA "
+        return f"{etiqueta}{row['Codigo']} | {row['Marca']} | {row['Modelo']} | {row['Descripcion'][:30]} | ${precio:,.2f}"
 
     df_filtrado['Display'] = df_filtrado.apply(format_display, axis=1)
 
@@ -227,6 +263,9 @@ if not df_filtrado.empty:
         st.session_state.carrito.append({
             "Codigo": prod_data['Codigo'],
             "Descripcion": prod_data['Descripcion'],
+            "Modelo": prod_data['Modelo'],
+            "Marca": prod_data['Marca'],
+            "Hoja_Origen": prod_data['Hoja_Origen'],
             "Cantidad": cantidad,
             "Precio_Unitario": precio_usar,
             "Es_Oferta": prod_data['Es_Oferta'],
@@ -240,16 +279,33 @@ else:
 st.markdown("---")
 
 # ------------------------------------------------------------
-# 4. RESUMEN DEL PEDIDO Y DESCUENTOS
+# 4. RESUMEN DEL PEDIDO CON DETALLE DE DESCUENTOS
 # ------------------------------------------------------------
 st.subheader("3. Resumen del Pedido")
 
 if st.session_state.carrito:
     df_carrito = pd.DataFrame(st.session_state.carrito)
 
-    df_mostrar = df_carrito[['Codigo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'Es_Oferta', 'Subtotal_Bruto']].copy()
+    # Calcular descuentos
+    # Definir función para determinar si un producto tiene descuento (no oferta y no baterías)
+    def is_discount_applicable(row):
+        if row['Es_Oferta']:
+            return False
+        if row.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(row['Hoja_Origen']).upper():
+            return False
+        return True
+
+    # Inicialmente sin descuentos, luego se aplicará el multiplicador según los inputs del usuario
+    # Pero primero mostramos la tabla sin aplicar descuentos (con valores brutos), luego en el cálculo final se aplica.
+    # Para mostrar el detalle, vamos a calcular el neto con los descuentos actuales (los que el usuario ingrese)
+    # Por ahora, definimos los descuentos en una sección después.
+
+    # Mostrar tabla con columnas mejoradas
+    df_mostrar = df_carrito[['Codigo', 'Marca', 'Modelo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'Es_Oferta', 'Hoja_Origen', 'Subtotal_Bruto']].copy()
     df_mostrar['Es_Oferta'] = df_mostrar['Es_Oferta'].apply(lambda x: "Sí (Neto)" if x else "No")
-    st.dataframe(df_mostrar, use_container_width=True)
+    # Agregar columna de origen para identificar baterías
+    df_mostrar['Origen'] = df_mostrar['Hoja_Origen'].apply(lambda x: "Baterías" if "BATERÍAS Y CARGADORES" in str(x).upper() else "Otro")
+    st.dataframe(df_mostrar.drop(columns=['Hoja_Origen']), use_container_width=True)
 
     if st.button("🗑️ Vaciar Carrito"):
         st.session_state.carrito = []
@@ -266,22 +322,38 @@ if st.session_state.carrito:
     descuentos_usados = [f"-{d}%" for d in [desc_gen, desc_ad1, desc_ad2] if d > 0]
     texto_descuentos = " ".join(descuentos_usados) if descuentos_usados else "Sin bonificación"
 
-    df_carrito['Neto_Calculado'] = df_carrito.apply(
-        lambda row: row['Subtotal_Bruto'] if row['Es_Oferta'] else (row['Subtotal_Bruto'] * multiplicador_desc),
-        axis=1
-    )
+    # Calcular neto y descuento por producto
+    def calcular_neto(row):
+        if is_discount_applicable(row):
+            neto = row['Subtotal_Bruto'] * multiplicador_desc
+        else:
+            neto = row['Subtotal_Bruto']  # sin descuento
+        return neto
+
+    df_carrito['Neto_Calculado'] = df_carrito.apply(calcular_neto, axis=1)
+    df_carrito['Monto_Descuento'] = df_carrito['Subtotal_Bruto'] - df_carrito['Neto_Calculado']
     df_carrito['Monto_IVA'] = df_carrito['Neto_Calculado'] * df_carrito['IVA']
 
     total_bruto = df_carrito['Subtotal_Bruto'].sum()
     total_neto = df_carrito['Neto_Calculado'].sum()
     total_iva = df_carrito['Monto_IVA'].sum()
     total_final = total_neto + total_iva
+    total_descuento = total_bruto - total_neto
+
+    # Mostrar detalle de descuentos por producto
+    st.markdown("#### Detalle de Descuentos por Producto")
+    detalle = df_carrito[['Codigo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado']].copy()
+    detalle['Monto_Descuento'] = detalle['Monto_Descuento'].apply(lambda x: f"${x:,.2f}" if x > 0 else "$0.00")
+    detalle['Neto_Calculado'] = detalle['Neto_Calculado'].apply(lambda x: f"${x:,.2f}")
+    detalle['Subtotal_Bruto'] = detalle['Subtotal_Bruto'].apply(lambda x: f"${x:,.2f}")
+    st.dataframe(detalle, use_container_width=True)
 
     col_totales.metric("Subtotal Bruto", f"${total_bruto:,.2f}")
-    col_totales.metric(f"Neto (Desc. aplicados)", f"${total_neto:,.2f}")
+    col_totales.metric(f"Descuentos ({texto_descuentos})", f"${total_descuento:,.2f}")
+    col_totales.metric("Neto (con descuentos)", f"${total_neto:,.2f}")
     col_totales.metric("Total Final (Inc. IVA)", f"${total_final:,.2f}")
 
-    # 5. EXPORTACIÓN A PDF
+    # 5. EXPORTACIÓN A PDF (con detalle de descuentos por producto)
     st.markdown("---")
     if st.button("📄 Generar PDF del Pedido", type="primary"):
         if cliente_seleccionado is None:
@@ -301,44 +373,56 @@ if st.session_state.carrito:
         pdf.cell(0, 6, f"Vendedor: {cli_info.get('NOMB.VENDEDOR', '-')}", ln=True)
         pdf.ln(10)
 
-        pdf.set_font("Arial", 'B', 9)
-        pdf.cell(25, 8, "Codigo", border=1)
-        pdf.cell(85, 8, "Descripcion", border=1)
-        pdf.cell(15, 8, "Cant", border=1, align='C')
-        pdf.cell(30, 8, "P. Unit", border=1, align='R')
-        pdf.cell(35, 8, "Subtotal Neto", border=1, align='R')
+        # Cabecera de tabla con más columnas
+        pdf.set_font("Arial", 'B', 8)
+        pdf.cell(20, 8, "Codigo", border=1)
+        pdf.cell(20, 8, "Marca", border=1)
+        pdf.cell(25, 8, "Modelo", border=1)
+        pdf.cell(50, 8, "Descripcion", border=1)
+        pdf.cell(12, 8, "Cant", border=1, align='C')
+        pdf.cell(22, 8, "P.Unit", border=1, align='R')
+        pdf.cell(22, 8, "Subtotal", border=1, align='R')
+        pdf.cell(18, 8, "Desc.", border=1, align='R')
+        pdf.cell(22, 8, "Neto", border=1, align='R')
         pdf.ln()
 
-        pdf.set_font("Arial", '', 8)
+        pdf.set_font("Arial", '', 7)
         for _, row in df_carrito.iterrows():
-            desc_corta = str(row['Descripcion'])[:45]
-            marca_oferta = " (*NETO)" if row['Es_Oferta'] else ""
-            desc_final = desc_corta + marca_oferta
+            desc_corta = str(row['Descripcion'])[:35]
+            marca_corta = str(row['Marca'])[:15]
+            modelo_corta = str(row['Modelo'])[:18]
 
-            pdf.cell(25, 6, str(row['Codigo']), border=1)
-            pdf.cell(85, 6, desc_final, border=1)
-            pdf.cell(15, 6, str(row['Cantidad']), border=1, align='C')
-            pdf.cell(30, 6, f"${row['Precio_Unitario']:,.2f}", border=1, align='R')
-            pdf.cell(35, 6, f"${row['Neto_Calculado']:,.2f}", border=1, align='R')
+            pdf.cell(20, 6, str(row['Codigo']), border=1)
+            pdf.cell(20, 6, marca_corta, border=1)
+            pdf.cell(25, 6, modelo_corta, border=1)
+            pdf.cell(50, 6, desc_corta, border=1)
+            pdf.cell(12, 6, str(row['Cantidad']), border=1, align='C')
+            pdf.cell(22, 6, f"${row['Precio_Unitario']:,.2f}", border=1, align='R')
+            pdf.cell(22, 6, f"${row['Subtotal_Bruto']:,.2f}", border=1, align='R')
+            pdf.cell(18, 6, f"${row['Monto_Descuento']:,.2f}", border=1, align='R')
+            pdf.cell(22, 6, f"${row['Neto_Calculado']:,.2f}", border=1, align='R')
             pdf.ln()
 
         pdf.ln(5)
-        pdf.set_font("Arial", 'I', 8)
-        pdf.cell(0, 5, "(*) Los articulos marcados como NETO no reciben descuentos comerciales adicionales.", ln=True)
+        pdf.set_font("Arial", 'I', 7)
+        pdf.cell(0, 5, "(*) Los articulos marcados como OFERTA o de la hoja 'BATERÍAS Y CARGADORES' no reciben descuentos adicionales.", ln=True)
         pdf.ln(2)
 
         pdf.set_font("Arial", 'B', 10)
-        pdf.cell(160, 6, "Subtotal Bruto (Sin Desc):", align='R')
-        pdf.cell(30, 6, f"${total_bruto:,.2f}", align='R')
+        pdf.cell(150, 6, "Subtotal Bruto (Sin Desc):", align='R')
+        pdf.cell(40, 6, f"${total_bruto:,.2f}", align='R')
         pdf.ln()
-        pdf.cell(160, 6, f"Bonificaciones ({texto_descuentos}):", align='R')
-        pdf.cell(30, 6, f"${total_neto:,.2f}", align='R')
+        pdf.cell(150, 6, f"Descuentos ({texto_descuentos}):", align='R')
+        pdf.cell(40, 6, f"${total_descuento:,.2f}", align='R')
         pdf.ln()
-        pdf.cell(160, 6, "IVA Total:", align='R')
-        pdf.cell(30, 6, f"${total_iva:,.2f}", align='R')
+        pdf.cell(150, 6, "Neto:", align='R')
+        pdf.cell(40, 6, f"${total_neto:,.2f}", align='R')
         pdf.ln()
-        pdf.cell(160, 8, "TOTAL FINAL:", align='R')
-        pdf.cell(30, 8, f"${total_final:,.2f}", align='R')
+        pdf.cell(150, 6, "IVA Total:", align='R')
+        pdf.cell(40, 6, f"${total_iva:,.2f}", align='R')
+        pdf.ln()
+        pdf.cell(150, 8, "TOTAL FINAL:", align='R')
+        pdf.cell(40, 8, f"${total_final:,.2f}", align='R')
 
         fd, path = tempfile.mkstemp(suffix=".pdf")
         try:
