@@ -6,7 +6,6 @@ import os
 import glob
 import re
 import unicodedata
-from babel.numbers import format_currency  # Para formateo de moneda (instalar con: pip install babel)
 
 st.set_page_config(page_title="Gestión de Pedidos", layout="wide", initial_sidebar_state="expanded")
 
@@ -46,12 +45,10 @@ def get_product_price_info(row):
         unidad_num = float(unidad)
         if unidad_num > 0:
             precio_unitario = precio_lista / unidad_num
-            # Paso sugerido: si existe cantidad por caja, usarlo; sino 1
             try:
                 step = float(caja) if caja else 1.0
             except:
                 step = 1.0
-            # Texto de ayuda
             if caja:
                 ayuda = f"Sugerido: múltiplos de {step} (caja de {step} unidades)"
             else:
@@ -60,7 +57,6 @@ def get_product_price_info(row):
     except:
         pass
 
-    # Si no es numérico, asumimos que el precio es por unidad
     precio_unitario = precio_lista
     try:
         step = float(caja) if caja else 1.0
@@ -142,6 +138,15 @@ def load_databases():
 
 
 def standardize_product_columns(df, filename):
+    """
+    Convierte las columnas de cada archivo a un esquema común,
+    pero conserva columnas adicionales útiles.
+    Ahora incluye 'Herramienta' (para Einhell).
+    """
+    # Agregar columna 'Herramienta' si no existe
+    if 'Herramienta' not in df.columns:
+        df['Herramienta'] = None
+
     if "KWB" in filename:
         df = df.rename(columns={'Nombre': 'Modelo'})
         for col in ['Codigo', 'Descripcion', 'Modelo', 'Marca', 'Precio_Lista', 'IVA', 'Hoja_Origen']:
@@ -150,14 +155,17 @@ def standardize_product_columns(df, filename):
         for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio']:
             if extra not in df.columns:
                 df[extra] = None
+
     elif "Einhell" in filename:
         if 'Hoja_Origen' not in df.columns:
             df['Hoja_Origen'] = 'Einhell'
         if 'Marca' not in df.columns:
             df['Marca'] = 'Einhell'
+        # 'Herramienta' ya existe
         for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio']:
             if extra not in df.columns:
                 df[extra] = None
+
     elif "Fijaciones" in filename:
         df = df.rename(columns={'PrecioLista': 'Precio_Lista'})
         df['Modelo'] = df['Descripcion']
@@ -165,7 +173,10 @@ def standardize_product_columns(df, filename):
             df['Marca'] = 'Fijaciones'
         if 'Hoja_Origen' not in df.columns:
             df['Hoja_Origen'] = 'Fijaciones'
-        # Las columnas CantidadPorCaja, Embalaje, UnidadPrecio ya están
+        for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio']:
+            if extra not in df.columns:
+                df[extra] = None
+
     elif "Penosil" in filename:
         df = df.rename(columns={
             'Artículo': 'Codigo',
@@ -179,6 +190,7 @@ def standardize_product_columns(df, filename):
         for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio']:
             if extra not in df.columns:
                 df[extra] = None
+
     else:
         if 'PrecioLista' in df.columns:
             df = df.rename(columns={'PrecioLista': 'Precio_Lista'})
@@ -194,7 +206,7 @@ def standardize_product_columns(df, filename):
             if extra not in df.columns:
                 df[extra] = None
 
-    required = ['Codigo', 'Descripcion', 'Modelo', 'Marca', 'Precio_Lista', 'IVA', 'Hoja_Origen']
+    required = ['Codigo', 'Descripcion', 'Modelo', 'Marca', 'Precio_Lista', 'IVA', 'Hoja_Origen', 'Herramienta']
     for col in required:
         if col not in df.columns:
             df[col] = None
@@ -231,28 +243,57 @@ else:
 st.markdown("---")
 
 # ------------------------------------------------------------
-# 3. CATÁLOGO Y AGREGADO AL CARRITO
+# 3. CATÁLOGO Y AGREGADO AL CARRITO (CON FILTRO POR HERRAMIENTA Y BUSCADOR MEJORADO)
 # ------------------------------------------------------------
 st.subheader("2. Catálogo de Productos")
 
-col_f1, col_f2 = st.columns(2)
+# Detectar si existe la columna 'Herramienta' con datos
+has_herramienta = 'Herramienta' in df_productos.columns and df_productos['Herramienta'].notna().any()
+
+# Configurar columnas para filtros
+if has_herramienta:
+    col_f1, col_f2, col_f3 = st.columns([1, 1, 2])
+else:
+    col_f1, col_f2 = st.columns([1, 2])
+
+# Filtro por Marca
 marcas_disponibles = sorted(df_productos['Marca'].dropna().unique())
 marca_filtro = col_f1.selectbox("Filtrar por Línea / Marca:", options=["Todas"] + marcas_disponibles)
-busqueda = col_f2.text_input("🔍 Buscar por Código, Modelo, Descripción o Marca:")
 
+# Filtro por Herramienta (solo si existe)
+if has_herramienta:
+    herramientas_disponibles = sorted(df_productos['Herramienta'].dropna().unique())
+    herramienta_filtro = col_f2.selectbox("Filtrar por Herramienta:", options=["Todas"] + herramientas_disponibles)
+else:
+    herramienta_filtro = "Todas"
+
+# Campo de búsqueda
+if has_herramienta:
+    busqueda = col_f3.text_input("🔍 Buscar por Código, Modelo, Descripción, Marca o Herramienta:")
+else:
+    busqueda = col_f2.text_input("🔍 Buscar por Código, Modelo, Descripción o Marca:")
+
+# Aplicar filtros
 df_filtrado = df_productos.copy()
 if marca_filtro != "Todas":
     df_filtrado = df_filtrado[df_filtrado['Marca'] == marca_filtro]
+if has_herramienta and herramienta_filtro != "Todas":
+    df_filtrado = df_filtrado[df_filtrado['Herramienta'] == herramienta_filtro]
 
+# Búsqueda inteligente (incluye Herramienta)
 if busqueda:
     palabras = [normalize_text(p) for p in busqueda.split()]
     df_filtrado['Codigo_norm'] = df_filtrado['Codigo'].astype(str).apply(normalize_text)
     df_filtrado['Modelo_norm'] = df_filtrado['Modelo'].astype(str).apply(normalize_text)
     df_filtrado['Descripcion_norm'] = df_filtrado['Descripcion'].astype(str).apply(normalize_text)
     df_filtrado['Marca_norm'] = df_filtrado['Marca'].astype(str).apply(normalize_text)
+    if has_herramienta:
+        df_filtrado['Herramienta_norm'] = df_filtrado['Herramienta'].astype(str).apply(normalize_text)
 
     def matches_all(row):
         text = f"{row['Codigo_norm']} {row['Modelo_norm']} {row['Descripcion_norm']} {row['Marca_norm']}"
+        if has_herramienta:
+            text += f" {row['Herramienta_norm']}"
         return all(p in text for p in palabras)
 
     mask = df_filtrado.apply(matches_all, axis=1)
@@ -271,13 +312,22 @@ if busqueda:
                     score += 5
                 if p in desc:
                     score += 1
+                if has_herramienta and p in row['Herramienta_norm']:
+                    score += 3
             return score
 
         df_filtrado['Relevance'] = df_filtrado.apply(relevance_score, axis=1)
         df_filtrado = df_filtrado.sort_values('Relevance', ascending=False)
-        df_filtrado = df_filtrado.drop(columns=['Codigo_norm', 'Modelo_norm', 'Descripcion_norm', 'Marca_norm', 'Relevance'])
+        # Eliminar columnas auxiliares
+        cols_to_drop = ['Codigo_norm', 'Modelo_norm', 'Descripcion_norm', 'Marca_norm']
+        if has_herramienta:
+            cols_to_drop.append('Herramienta_norm')
+        df_filtrado = df_filtrado.drop(columns=cols_to_drop + ['Relevance'])
     else:
-        df_filtrado = df_filtrado.drop(columns=['Codigo_norm', 'Modelo_norm', 'Descripcion_norm', 'Marca_norm'])
+        cols_to_drop = ['Codigo_norm', 'Modelo_norm', 'Descripcion_norm', 'Marca_norm']
+        if has_herramienta:
+            cols_to_drop.append('Herramienta_norm')
+        df_filtrado = df_filtrado.drop(columns=cols_to_drop)
 
 st.markdown("##### Agregar al Pedido")
 
@@ -320,7 +370,11 @@ if not df_filtrado.empty:
             col_det1.markdown(f"**Código:** `{prod_data['Codigo']}`")
             col_det1.markdown(f"**Marca:** {prod_data['Marca']}")
             col_det1.markdown(f"**Modelo:** {prod_data['Modelo']}")
+            # Mostrar Herramienta si existe
+            if has_herramienta and pd.notna(prod_data.get('Herramienta')):
+                col_det1.markdown(f"**Herramienta:** {prod_data['Herramienta']}")
             col_det2.markdown(f"**Descripción:** {prod_data['Descripcion']}")
+
             extra_info = []
             if pd.notna(prod_data.get('Embalaje')):
                 extra_info.append(f"**Embalaje:** {prod_data['Embalaje']}")
@@ -373,6 +427,7 @@ if not df_filtrado.empty:
                     "Modelo": str(prod_data['Modelo']),
                     "Marca": str(prod_data['Marca']),
                     "Hoja_Origen": str(prod_data['Hoja_Origen']),
+                    "Herramienta": str(prod_data.get('Herramienta', '')) if pd.notna(prod_data.get('Herramienta')) else '',
                     "Cantidad": cantidad,
                     "Precio_Unitario": precio_unitario_a_usar,
                     "Es_Oferta": prod_data['Es_Oferta'],
@@ -396,7 +451,6 @@ st.subheader("3. Resumen del Pedido")
 if st.session_state.carrito:
     df_carrito = pd.DataFrame(st.session_state.carrito)
 
-    # Verificar si un producto recibe descuento
     def is_discount_applicable(row):
         if row['Es_Oferta']:
             return False
@@ -404,9 +458,9 @@ if st.session_state.carrito:
             return False
         return True
 
-    # Mostrar tabla resumen con columnas adicionales
+    # Mostrar tabla resumen
     cols_basic = ['Codigo', 'Marca', 'Modelo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'Es_Oferta', 'Hoja_Origen', 'Subtotal_Bruto']
-    # Si hay datos de embalaje, los agregamos
+    # Si hay datos de embalaje, agregarlos
     if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
         cols_extra = ['Embalaje', 'CantidadPorCaja', 'UnidadPrecio']
         cols_show = cols_basic + [c for c in cols_extra if c in df_carrito.columns]
@@ -433,7 +487,6 @@ if st.session_state.carrito:
     descuentos_usados = [f"-{d}%" for d in [desc_gen, desc_ad1, desc_ad2] if d > 0]
     texto_descuentos = " ".join(descuentos_usados) if descuentos_usados else "Sin bonificación"
 
-    # Calcular neto, descuento e IVA por producto
     def calcular_neto(row):
         if is_discount_applicable(row):
             neto = row['Subtotal_Bruto'] * multiplicador_desc
@@ -451,7 +504,6 @@ if st.session_state.carrito:
     total_final = total_neto + total_iva
     total_descuento = total_bruto - total_neto
 
-    # Tabla de detalle con IVA incluido
     st.markdown("#### Detalle por Producto (con IVA)")
     detalle = df_carrito[['Codigo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado', 'Monto_IVA']].copy()
     detalle['Monto_Descuento'] = detalle['Monto_Descuento'].apply(lambda x: f"${x:,.2f}" if x > 0 else "$0.00")
@@ -466,14 +518,13 @@ if st.session_state.carrito:
     col_totales.metric("IVA Total", f"${total_iva:,.2f}")
     col_totales.metric("Total Final (Inc. IVA)", f"${total_final:,.2f}")
 
-    # 5. EXPORTACIÓN A PDF (MEJORADO)
+    # 5. EXPORTACIÓN A PDF
     st.markdown("---")
     if st.button("📄 Generar PDF del Pedido", type="primary"):
         if cliente_seleccionado is None:
             st.error("Debes seleccionar un cliente antes de generar el PDF.")
             st.stop()
 
-        # Función para formatear moneda
         def fmt_currency(val):
             return f"${val:,.2f}"
 
@@ -492,14 +543,10 @@ if st.session_state.carrito:
 
         # Cabecera de tabla
         pdf.set_font("Arial", 'B', 8)
-        # Columnas: Codigo (18), Marca (18), Modelo (22), Descripcion (35), Emb (12), Caja (12), Unidad (14), Cant (12), P.Unit (18), Subtotal (20), Desc (18), Neto (20), IVA (18)
-        # Total ancho aprox: 18+18+22+35+12+12+14+12+18+20+18+20+18 = 237 mm (cabe en A4 210mm? necesitamos reducir)
-        # Ajustamos: Codigo 15, Marca 15, Modelo 18, Descripcion 30, Emb 10, Caja 10, Unidad 12, Cant 10, P.Unit 15, Subtotal 18, Desc 15, Neto 18, IVA 15 => total 201 mm, ok.
         pdf.cell(15, 8, "Codigo", border=1)
         pdf.cell(15, 8, "Marca", border=1)
         pdf.cell(18, 8, "Modelo", border=1)
         pdf.cell(30, 8, "Descripcion", border=1)
-        # Si hay datos de embalaje, agregar columnas extra
         if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
             pdf.cell(10, 8, "Emb.", border=1)
             pdf.cell(10, 8, "Caja", border=1)
@@ -523,13 +570,11 @@ if st.session_state.carrito:
             pdf.cell(18, 6, modelo_corta, border=1)
             pdf.cell(30, 6, desc_corta, border=1)
 
-            # Datos de embalaje
             if 'Embalaje' in row and row['Embalaje']:
                 pdf.cell(10, 6, str(row['Embalaje'])[:6], border=1)
                 pdf.cell(10, 6, str(row['CantidadPorCaja'])[:6], border=1)
                 pdf.cell(12, 6, str(row['UnidadPrecio'])[:6], border=1)
             else:
-                # Si no hay, dejar celdas vacías (pero igual dibujar las columnas)
                 if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
                     pdf.cell(10, 6, "", border=1)
                     pdf.cell(10, 6, "", border=1)
