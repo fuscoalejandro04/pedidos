@@ -34,6 +34,7 @@ def get_product_price_info(row):
     """
     Devuelve el precio unitario real, el paso sugerido para la cantidad,
     y un texto de ayuda, basado en UnidadPrecio y CantidadPorCaja.
+    También devuelve el precio por la presentación (precio de lista).
     """
     precio_lista = row['Precio_Lista']
     unidad = str(row.get('UnidadPrecio', '')) if pd.notna(row.get('UnidadPrecio')) else ''
@@ -53,10 +54,11 @@ def get_product_price_info(row):
                 ayuda = f"Sugerido: múltiplos de {step} (caja de {step} unidades)"
             else:
                 ayuda = f"Precio por {unidad_num} unidades: ${precio_lista:,.2f}"
-            return precio_unitario, step, ayuda
+            return precio_unitario, step, ayuda, precio_lista  # precio_presentacion
     except:
         pass
 
+    # Si no es numérico, asumimos que el precio es por unidad
     precio_unitario = precio_lista
     try:
         step = float(caja) if caja else 1.0
@@ -72,7 +74,51 @@ def get_product_price_info(row):
     else:
         ayuda = "Unidades sueltas"
 
-    return precio_unitario, step, ayuda
+    return precio_unitario, step, ayuda, precio_lista
+
+# ------------------------------------------------------------
+# FUNCIÓN PARA EXTRAER CATEGORÍA Y ALIMENTACIÓN EN EINHELL
+# ------------------------------------------------------------
+def extract_einhell_categories(herramienta_str):
+    """
+    Devuelve (categoria_generica, tipo_alimentacion) a partir del campo Herramienta.
+    Ejemplo: "ROTOMARTILLO INALÁMBRICO" -> ("Rotomartillo", "Inalámbrica")
+    """
+    if not isinstance(herramienta_str, str):
+        return None, None
+    h = herramienta_str.upper()
+    # Definir palabras clave
+    categorias = {
+        'ROTOMARTILLO': ['ROTOMARTILLO', 'MARTILLO PERFORADOR'],
+        'TALADRO': ['TALADRO', 'ATORNILLADOR', 'TALADRO PERCUTOR'],
+        'SIERRA': ['SIERRA', 'CALADORA', 'INGLETEADORA', 'SIERRA CIRCULAR', 'SIERRA SABLE'],
+        'AMOLADORA': ['AMOLADORA', 'PULIDORA', 'LIJADORA'],
+        'CEPILLO': ['CEPILLO', 'ENGALLETADORA'],
+        'ASPIRADORA': ['ASPIRADORA', 'HIDROLAVADORA'],
+        'COMPRESOR': ['COMPRESOR', 'BOMBA'],
+        'ROUTER': ['ROUTER', 'FRESADORA'],
+        'MOTOSIERRA': ['MOTOSIERRA', 'CORTACESPED', 'BORDEADORA'],
+        'LÁMPARA': ['LÁMPARA', 'REFLECTOR', 'LUZ'],
+        'OTRO': []
+    }
+    categoria = "OTRO"
+    for cat, keywords in categorias.items():
+        for kw in keywords:
+            if kw in h:
+                categoria = cat
+                break
+        if categoria != "OTRO":
+            break
+
+    # Alimentación
+    if "INALÁMBRICO" in h or "BATERÍA" in h:
+        tipo = "Inalámbrica"
+    elif "ELÉCTRICA" in h or "ELÉCTRICO" in h:
+        tipo = "Eléctrica"
+    else:
+        tipo = "No especificado"
+
+    return categoria.title(), tipo
 
 # ------------------------------------------------------------
 # 1. CARGAR DATOS Y DETECTAR OFERTAS
@@ -113,6 +159,23 @@ def load_databases():
     df_prod['Precio_Oferta'] = 0.0
     df_prod['Es_Oferta'] = False
 
+    # Agregar categorías para Einhell
+    if 'Herramienta' in df_prod.columns:
+        df_prod['Categoria_Generica'] = None
+        df_prod['Tipo_Alimentacion'] = None
+        mask_einhell = df_prod['Marca'] == 'Einhell'
+        if mask_einhell.any():
+            df_prod.loc[mask_einhell, 'Categoria_Generica'] = df_prod.loc[mask_einhell, 'Herramienta'].apply(
+                lambda x: extract_einhell_categories(x)[0]
+            )
+            df_prod.loc[mask_einhell, 'Tipo_Alimentacion'] = df_prod.loc[mask_einhell, 'Herramienta'].apply(
+                lambda x: extract_einhell_categories(x)[1]
+            )
+    else:
+        df_prod['Categoria_Generica'] = None
+        df_prod['Tipo_Alimentacion'] = None
+
+    # Buscar archivos de oferta
     archivos_oferta = glob.glob("*oferta*.xls*") + glob.glob("*OFERTA*.xls*")
     for archivo in archivos_oferta:
         try:
@@ -138,12 +201,7 @@ def load_databases():
 
 
 def standardize_product_columns(df, filename):
-    """
-    Convierte las columnas de cada archivo a un esquema común,
-    pero conserva columnas adicionales útiles.
-    Ahora incluye 'Herramienta' (para Einhell).
-    """
-    # Agregar columna 'Herramienta' si no existe
+    # ... (igual que antes, con la adición de 'Herramienta')
     if 'Herramienta' not in df.columns:
         df['Herramienta'] = None
 
@@ -243,42 +301,57 @@ else:
 st.markdown("---")
 
 # ------------------------------------------------------------
-# 3. CATÁLOGO Y AGREGADO AL CARRITO (CON FILTRO POR HERRAMIENTA Y BUSCADOR MEJORADO)
+# 3. CATÁLOGO Y AGREGADO AL CARRITO (CON FILTROS MEJORADOS Y SELECCIÓN DE PRESENTACIÓN)
 # ------------------------------------------------------------
 st.subheader("2. Catálogo de Productos")
 
-# Detectar si existe la columna 'Herramienta' con datos
+# Detectar si existen columnas de categorías
+has_categorias = 'Categoria_Generica' in df_productos.columns and df_productos['Categoria_Generica'].notna().any()
+has_alimentacion = 'Tipo_Alimentacion' in df_productos.columns and df_productos['Tipo_Alimentacion'].notna().any()
 has_herramienta = 'Herramienta' in df_productos.columns and df_productos['Herramienta'].notna().any()
 
-# Configurar columnas para filtros
-if has_herramienta:
-    col_f1, col_f2, col_f3 = st.columns([1, 1, 2])
-else:
-    col_f1, col_f2 = st.columns([1, 2])
+# Configurar columnas para filtros (hasta 4 columnas)
+num_filtros = 2  # Marca y Búsqueda siempre
+if has_categorias:
+    num_filtros += 1
+if has_alimentacion:
+    num_filtros += 1
+
+cols_filtros = st.columns(num_filtros)
+col_idx = 0
 
 # Filtro por Marca
 marcas_disponibles = sorted(df_productos['Marca'].dropna().unique())
-marca_filtro = col_f1.selectbox("Filtrar por Línea / Marca:", options=["Todas"] + marcas_disponibles)
+marca_filtro = cols_filtros[col_idx].selectbox("Filtrar por Línea / Marca:", options=["Todas"] + marcas_disponibles)
+col_idx += 1
 
-# Filtro por Herramienta (solo si existe)
-if has_herramienta:
-    herramientas_disponibles = sorted(df_productos['Herramienta'].dropna().unique())
-    herramienta_filtro = col_f2.selectbox("Filtrar por Herramienta:", options=["Todas"] + herramientas_disponibles)
+# Filtro por Categoría (si existe)
+if has_categorias:
+    categorias_disponibles = sorted(df_productos['Categoria_Generica'].dropna().unique())
+    cat_filtro = cols_filtros[col_idx].selectbox("Categoría:", options=["Todas"] + categorias_disponibles)
+    col_idx += 1
 else:
-    herramienta_filtro = "Todas"
+    cat_filtro = "Todas"
 
-# Campo de búsqueda
-if has_herramienta:
-    busqueda = col_f3.text_input("🔍 Buscar por Código, Modelo, Descripción, Marca o Herramienta:")
+# Filtro por Alimentación (si existe)
+if has_alimentacion:
+    alimentacion_disponibles = sorted(df_productos['Tipo_Alimentacion'].dropna().unique())
+    alim_filtro = cols_filtros[col_idx].selectbox("Alimentación:", options=["Todas"] + alimentacion_disponibles)
+    col_idx += 1
 else:
-    busqueda = col_f2.text_input("🔍 Buscar por Código, Modelo, Descripción o Marca:")
+    alim_filtro = "Todas"
+
+# Campo de búsqueda (ocupa el resto del ancho)
+busqueda = cols_filtros[-1].text_input("🔍 Buscar por Código, Modelo, Descripción, Marca o Herramienta:")
 
 # Aplicar filtros
 df_filtrado = df_productos.copy()
 if marca_filtro != "Todas":
     df_filtrado = df_filtrado[df_filtrado['Marca'] == marca_filtro]
-if has_herramienta and herramienta_filtro != "Todas":
-    df_filtrado = df_filtrado[df_filtrado['Herramienta'] == herramienta_filtro]
+if has_categorias and cat_filtro != "Todas":
+    df_filtrado = df_filtrado[df_filtrado['Categoria_Generica'] == cat_filtro]
+if has_alimentacion and alim_filtro != "Todas":
+    df_filtrado = df_filtrado[df_filtrado['Tipo_Alimentacion'] == alim_filtro]
 
 # Búsqueda inteligente (incluye Herramienta)
 if busqueda:
@@ -318,7 +391,6 @@ if busqueda:
 
         df_filtrado['Relevance'] = df_filtrado.apply(relevance_score, axis=1)
         df_filtrado = df_filtrado.sort_values('Relevance', ascending=False)
-        # Eliminar columnas auxiliares
         cols_to_drop = ['Codigo_norm', 'Modelo_norm', 'Descripcion_norm', 'Marca_norm']
         if has_herramienta:
             cols_to_drop.append('Herramienta_norm')
@@ -332,47 +404,76 @@ if busqueda:
 st.markdown("##### Agregar al Pedido")
 
 if not df_filtrado.empty:
-    def format_display(row):
-        precio_unitario, _, _ = get_product_price_info(row)
-        precio_mostrar = row['Precio_Oferta'] if row['Es_Oferta'] else precio_unitario
-        etiqueta = "🔥 OFERTA " if row['Es_Oferta'] else ""
-        if row.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(row['Hoja_Origen']).upper():
-            etiqueta += "🔋 BATERÍA "
-        extra_parts = []
-        emb = str(row.get('Embalaje', '')) if pd.notna(row.get('Embalaje')) else ''
-        caja = str(row.get('CantidadPorCaja', '')) if pd.notna(row.get('CantidadPorCaja')) else ''
-        unidad = str(row.get('UnidadPrecio', '')) if pd.notna(row.get('UnidadPrecio')) else ''
-        if emb:
-            extra_parts.append(emb)
-        if caja:
-            extra_parts.append(f"{caja}/caja")
-        if unidad:
-            if unidad.isdigit():
-                extra_parts.append(f"x{unidad}")
-            else:
-                extra_parts.append(f"({unidad})")
-        extra_info = " | " + " ".join(extra_parts) if extra_parts else ""
-        desc = str(row['Descripcion'])[:30]
-        return f"{etiqueta}{row['Codigo']} | {row['Marca']} | {row['Modelo']} | {desc}{extra_info} | ${precio_mostrar:,.2f}"
+    # --- Función para agrupar presentaciones ---
+    # Extraer código base (solo dígitos)
+    df_filtrado['Codigo_Base'] = df_filtrado['Codigo'].astype(str).apply(lambda x: re.sub(r'[^0-9]', '', x))
+    # Agrupar por código base y marca para ofrecer presentaciones
+    # Creamos una columna 'Clave_Producto' = Codigo_Base + Marca
+    df_filtrado['Clave_Producto'] = df_filtrado['Codigo_Base'] + '_' + df_filtrado['Marca']
 
-    df_filtrado['Display'] = df_filtrado.apply(format_display, axis=1)
+    # Para el dropdown, mostraremos una representación única de cada producto (la primera fila de cada grupo)
+    # Pero queremos que el usuario pueda elegir presentación. Vamos a ofrecer un selectbox de presentación después de seleccionar el producto.
+    # Primero, mostramos un dropdown de productos (por clave)
+    productos_unicos = df_filtrado.drop_duplicates(subset=['Clave_Producto']).copy()
+    # Para mostrar en el dropdown, usamos la primera fila de cada grupo (tomamos la primera aparición)
+    productos_unicos['Display'] = productos_unicos.apply(
+        lambda row: f"{row['Codigo']} | {row['Marca']} | {row['Descripcion'][:30]}", axis=1
+    )
+    display_options = productos_unicos['Display'].tolist()
 
+    # Si hay varias presentaciones, guardamos las opciones en session_state para usarlas después
+    # Necesitamos saber qué clave de producto seleccionó el usuario
     col_sel, col_qty, col_btn = st.columns([3, 1, 1])
-    prod_seleccionado = col_sel.selectbox("Seleccione el producto:", options=df_filtrado['Display'].tolist())
+    prod_seleccionado_display = col_sel.selectbox("Seleccione el producto:", options=display_options)
 
-    if prod_seleccionado:
-        prod_idx = df_filtrado[df_filtrado['Display'] == prod_seleccionado].index[0]
-        prod_data = df_filtrado.loc[prod_idx]
-        precio_unitario, step_sugerido, ayuda_cantidad = get_product_price_info(prod_data)
+    if prod_seleccionado_display:
+        # Obtener la clave del producto seleccionado
+        prod_row = productos_unicos[productos_unicos['Display'] == prod_seleccionado_display].iloc[0]
+        clave_seleccionada = prod_row['Clave_Producto']
+
+        # Obtener todas las presentaciones de este producto
+        presentaciones = df_filtrado[df_filtrado['Clave_Producto'] == clave_seleccionada].copy()
+        # Ordenar por embalaje o cantidad por caja para tener un orden lógico
+        presentaciones = presentaciones.sort_values(['CantidadPorCaja', 'Embalaje'], ascending=[True, True])
+
+        # Si hay más de una presentación, mostrar un selectbox para elegir
+        if len(presentaciones) > 1:
+            # Crear una descripción de presentación
+            def format_presentacion(row):
+                emb = str(row['Embalaje']) if pd.notna(row['Embalaje']) else ''
+                caja = str(row['CantidadPorCaja']) if pd.notna(row['CantidadPorCaja']) else ''
+                unidad = str(row['UnidadPrecio']) if pd.notna(row['UnidadPrecio']) else ''
+                partes = []
+                if emb:
+                    partes.append(emb)
+                if caja:
+                    partes.append(f"Caja:{caja}")
+                if unidad:
+                    partes.append(f"Unidad:{unidad}")
+                return " | ".join(partes) if partes else "Presentación estándar"
+
+            presentaciones['Presentacion_Label'] = presentaciones.apply(format_presentacion, axis=1)
+            presentacion_opciones = presentaciones['Presentacion_Label'].tolist()
+            presentacion_seleccionada = st.selectbox("Elegir presentación:", options=presentacion_opciones)
+            # Obtener la fila correspondiente
+            prod_data = presentaciones[presentaciones['Presentacion_Label'] == presentacion_seleccionada].iloc[0]
+        else:
+            prod_data = presentaciones.iloc[0]
+
+        # Ahora prod_data es la fila con la presentación elegida
+        precio_unitario, step_sugerido, ayuda_cantidad, precio_presentacion = get_product_price_info(prod_data)
 
         with st.expander("📋 Detalles del producto seleccionado", expanded=True):
             col_det1, col_det2 = st.columns(2)
             col_det1.markdown(f"**Código:** `{prod_data['Codigo']}`")
             col_det1.markdown(f"**Marca:** {prod_data['Marca']}")
             col_det1.markdown(f"**Modelo:** {prod_data['Modelo']}")
-            # Mostrar Herramienta si existe
             if has_herramienta and pd.notna(prod_data.get('Herramienta')):
                 col_det1.markdown(f"**Herramienta:** {prod_data['Herramienta']}")
+            if pd.notna(prod_data.get('Categoria_Generica')):
+                col_det1.markdown(f"**Categoría:** {prod_data['Categoria_Generica']}")
+            if pd.notna(prod_data.get('Tipo_Alimentacion')):
+                col_det1.markdown(f"**Alimentación:** {prod_data['Tipo_Alimentacion']}")
             col_det2.markdown(f"**Descripción:** {prod_data['Descripcion']}")
 
             extra_info = []
@@ -392,8 +493,7 @@ if not df_filtrado.empty:
                 st.markdown(f"**Precio unitario:** ${precio_unitario:,.2f}")
                 unidad = str(prod_data.get('UnidadPrecio', '')) if pd.notna(prod_data.get('UnidadPrecio')) else ''
                 if unidad.isdigit():
-                    precio_por_embalaje = prod_data['Precio_Lista']
-                    st.markdown(f"**Precio por {unidad} unidades:** ${precio_por_embalaje:,.2f}")
+                    st.markdown(f"**Precio por {unidad} unidades:** ${precio_presentacion:,.2f}")
             if prod_data.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(prod_data['Hoja_Origen']).upper():
                 st.info("🔋 Este producto es de la hoja BATERÍAS Y CARGADORES y no recibe descuentos adicionales.")
 
@@ -428,6 +528,8 @@ if not df_filtrado.empty:
                     "Marca": str(prod_data['Marca']),
                     "Hoja_Origen": str(prod_data['Hoja_Origen']),
                     "Herramienta": str(prod_data.get('Herramienta', '')) if pd.notna(prod_data.get('Herramienta')) else '',
+                    "Categoria_Generica": str(prod_data.get('Categoria_Generica', '')) if pd.notna(prod_data.get('Categoria_Generica')) else '',
+                    "Tipo_Alimentacion": str(prod_data.get('Tipo_Alimentacion', '')) if pd.notna(prod_data.get('Tipo_Alimentacion')) else '',
                     "Cantidad": cantidad,
                     "Precio_Unitario": precio_unitario_a_usar,
                     "Es_Oferta": prod_data['Es_Oferta'],
@@ -435,7 +537,8 @@ if not df_filtrado.empty:
                     "Subtotal_Bruto": precio_unitario_a_usar * cantidad,
                     "Embalaje": str(prod_data.get('Embalaje', '')) if pd.notna(prod_data.get('Embalaje')) else '',
                     "CantidadPorCaja": str(prod_data.get('CantidadPorCaja', '')) if pd.notna(prod_data.get('CantidadPorCaja')) else '',
-                    "UnidadPrecio": str(prod_data.get('UnidadPrecio', '')) if pd.notna(prod_data.get('UnidadPrecio')) else ''
+                    "UnidadPrecio": str(prod_data.get('UnidadPrecio', '')) if pd.notna(prod_data.get('UnidadPrecio')) else '',
+                    "Precio_Presentacion": precio_presentacion if not prod_data['Es_Oferta'] else prod_data['Precio_Oferta']
                 })
                 st.success(f"¡Agregado: {cantidad}x {prod_data['Codigo']}!")
 else:
@@ -444,37 +547,62 @@ else:
 st.markdown("---")
 
 # ------------------------------------------------------------
-# 4. RESUMEN DEL PEDIDO (CON IVA POR PRODUCTO)
+# 4. RESUMEN DEL PEDIDO (CARRITO EDITABLE Y DETALLE DE DESCUENTOS)
 # ------------------------------------------------------------
 st.subheader("3. Resumen del Pedido")
 
 if st.session_state.carrito:
-    df_carrito = pd.DataFrame(st.session_state.carrito)
-
-    def is_discount_applicable(row):
-        if row['Es_Oferta']:
-            return False
-        if row.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(row['Hoja_Origen']).upper():
-            return False
-        return True
-
-    # Mostrar tabla resumen
-    cols_basic = ['Codigo', 'Marca', 'Modelo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'Es_Oferta', 'Hoja_Origen', 'Subtotal_Bruto']
-    # Si hay datos de embalaje, agregarlos
-    if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
-        cols_extra = ['Embalaje', 'CantidadPorCaja', 'UnidadPrecio']
-        cols_show = cols_basic + [c for c in cols_extra if c in df_carrito.columns]
-    else:
-        cols_show = cols_basic
-
-    df_mostrar = df_carrito[cols_show].copy()
-    df_mostrar['Es_Oferta'] = df_mostrar['Es_Oferta'].apply(lambda x: "Sí (Neto)" if x else "No")
-    df_mostrar['Origen'] = df_mostrar['Hoja_Origen'].apply(lambda x: "Baterías" if "BATERÍAS Y CARGADORES" in str(x).upper() else "Otro")
-    st.dataframe(df_mostrar, use_container_width=True)
-
-    if st.button("🗑️ Vaciar Carrito"):
-        st.session_state.carrito = []
+    # Función para actualizar el carrito
+    def update_carrito(index, new_cantidad=None):
+        if new_cantidad is not None:
+            if new_cantidad <= 0:
+                st.session_state.carrito.pop(index)
+            else:
+                st.session_state.carrito[index]['Cantidad'] = new_cantidad
+                st.session_state.carrito[index]['Subtotal_Bruto'] = st.session_state.carrito[index]['Precio_Unitario'] * new_cantidad
+        else:
+            st.session_state.carrito.pop(index)
         st.rerun()
+
+    # Mostrar carrito con botones de eliminar y campos de cantidad
+    st.markdown("#### Productos en el carrito")
+    if st.session_state.carrito:
+        for i, item in enumerate(st.session_state.carrito):
+            col1, col2, col3, col4, col5, col6, col7 = st.columns([1, 2, 1, 1, 2, 1, 1])
+            with col1:
+                st.write(f"**{i+1}**")
+            with col2:
+                st.write(f"{item['Codigo']} - {item['Descripcion'][:30]}")
+            with col3:
+                # Mostrar precio unitario
+                st.write(f"${item['Precio_Unitario']:,.2f}")
+            with col4:
+                # Campo de cantidad
+                new_qty = st.number_input(
+                    "Cant.",
+                    min_value=0,
+                    value=int(item['Cantidad']),
+                    step=1,
+                    key=f"qty_{i}",
+                    label_visibility="collapsed"
+                )
+                if new_qty != item['Cantidad']:
+                    update_carrito(i, new_qty)
+            with col5:
+                st.write(f"${item['Subtotal_Bruto']:,.2f}")
+            with col6:
+                if st.button("🗑️", key=f"del_{i}", help="Eliminar producto"):
+                    update_carrito(i, None)
+            with col7:
+                # Mostrar información de embalaje
+                emb = item.get('Embalaje', '')
+                if emb:
+                    st.caption(emb)
+            st.markdown("---")
+
+        if st.button("🗑️ Vaciar Carrito completo"):
+            st.session_state.carrito = []
+            st.rerun()
 
     st.markdown("#### Bonificaciones y Cierre")
     col_desc1, col_desc2, col_desc3, col_totales = st.columns([1, 1, 1, 2])
@@ -486,6 +614,16 @@ if st.session_state.carrito:
     multiplicador_desc = (1 - (desc_gen / 100)) * (1 - (desc_ad1 / 100)) * (1 - (desc_ad2 / 100))
     descuentos_usados = [f"-{d}%" for d in [desc_gen, desc_ad1, desc_ad2] if d > 0]
     texto_descuentos = " ".join(descuentos_usados) if descuentos_usados else "Sin bonificación"
+
+    # Convertir carrito a DataFrame para cálculos
+    df_carrito = pd.DataFrame(st.session_state.carrito)
+
+    def is_discount_applicable(row):
+        if row['Es_Oferta']:
+            return False
+        if row.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(row['Hoja_Origen']).upper():
+            return False
+        return True
 
     def calcular_neto(row):
         if is_discount_applicable(row):
@@ -504,19 +642,21 @@ if st.session_state.carrito:
     total_final = total_neto + total_iva
     total_descuento = total_bruto - total_neto
 
-    st.markdown("#### Detalle por Producto (con IVA)")
-    detalle = df_carrito[['Codigo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado', 'Monto_IVA']].copy()
-    detalle['Monto_Descuento'] = detalle['Monto_Descuento'].apply(lambda x: f"${x:,.2f}" if x > 0 else "$0.00")
-    detalle['Neto_Calculado'] = detalle['Neto_Calculado'].apply(lambda x: f"${x:,.2f}")
-    detalle['Subtotal_Bruto'] = detalle['Subtotal_Bruto'].apply(lambda x: f"${x:,.2f}")
-    detalle['Monto_IVA'] = detalle['Monto_IVA'].apply(lambda x: f"${x:,.2f}")
-    st.dataframe(detalle, use_container_width=True)
-
+    # Mostrar totales
     col_totales.metric("Subtotal Bruto", f"${total_bruto:,.2f}")
     col_totales.metric(f"Descuentos ({texto_descuentos})", f"${total_descuento:,.2f}")
     col_totales.metric("Neto (con descuentos)", f"${total_neto:,.2f}")
     col_totales.metric("IVA Total", f"${total_iva:,.2f}")
     col_totales.metric("Total Final (Inc. IVA)", f"${total_final:,.2f}")
+
+    # Detalle de descuentos por producto (opcional)
+    with st.expander("📊 Detalle de descuentos por producto"):
+        detalle = df_carrito[['Codigo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado', 'Monto_IVA']].copy()
+        detalle['Monto_Descuento'] = detalle['Monto_Descuento'].apply(lambda x: f"${x:,.2f}" if x > 0 else "$0.00")
+        detalle['Neto_Calculado'] = detalle['Neto_Calculado'].apply(lambda x: f"${x:,.2f}")
+        detalle['Subtotal_Bruto'] = detalle['Subtotal_Bruto'].apply(lambda x: f"${x:,.2f}")
+        detalle['Monto_IVA'] = detalle['Monto_IVA'].apply(lambda x: f"${x:,.2f}")
+        st.dataframe(detalle, use_container_width=True)
 
     # 5. EXPORTACIÓN A PDF
     st.markdown("---")
