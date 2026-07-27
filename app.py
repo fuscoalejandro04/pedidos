@@ -6,6 +6,7 @@ import os
 import glob
 import re
 import unicodedata
+from babel.numbers import format_currency  # Para formateo de moneda (instalar con: pip install babel)
 
 st.set_page_config(page_title="Gestión de Pedidos", layout="wide", initial_sidebar_state="expanded")
 
@@ -164,9 +165,7 @@ def standardize_product_columns(df, filename):
             df['Marca'] = 'Fijaciones'
         if 'Hoja_Origen' not in df.columns:
             df['Hoja_Origen'] = 'Fijaciones'
-        for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio']:
-            if extra not in df.columns:
-                df[extra] = None
+        # Las columnas CantidadPorCaja, Embalaje, UnidadPrecio ya están
     elif "Penosil" in filename:
         df = df.rename(columns={
             'Artículo': 'Codigo',
@@ -232,7 +231,7 @@ else:
 st.markdown("---")
 
 # ------------------------------------------------------------
-# 3. CATÁLOGO Y AGREGADO AL CARRITO (CON BUSCADOR MEJORADO Y CANTIDAD INTELIGENTE)
+# 3. CATÁLOGO Y AGREGADO AL CARRITO
 # ------------------------------------------------------------
 st.subheader("2. Catálogo de Productos")
 
@@ -344,13 +343,12 @@ if not df_filtrado.empty:
             if prod_data.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(prod_data['Hoja_Origen']).upper():
                 st.info("🔋 Este producto es de la hoja BATERÍAS Y CARGADORES y no recibe descuentos adicionales.")
 
-        # Determinar precio unitario a usar (con oferta o normal)
+        # Determinar precio unitario a usar
         if prod_data['Es_Oferta']:
             precio_unitario_a_usar = prod_data['Precio_Oferta']
         else:
             precio_unitario_a_usar = precio_unitario
 
-        # Asegurar step_sugerido sea float y mayor que 0
         step_final = float(step_sugerido) if step_sugerido > 0 else 1.0
         valor_inicial = float(step_sugerido) if step_sugerido > 0 else 1.0
 
@@ -391,13 +389,14 @@ else:
 st.markdown("---")
 
 # ------------------------------------------------------------
-# 4. RESUMEN DEL PEDIDO (sin cambios)
+# 4. RESUMEN DEL PEDIDO (CON IVA POR PRODUCTO)
 # ------------------------------------------------------------
 st.subheader("3. Resumen del Pedido")
 
 if st.session_state.carrito:
     df_carrito = pd.DataFrame(st.session_state.carrito)
 
+    # Verificar si un producto recibe descuento
     def is_discount_applicable(row):
         if row['Es_Oferta']:
             return False
@@ -405,7 +404,9 @@ if st.session_state.carrito:
             return False
         return True
 
+    # Mostrar tabla resumen con columnas adicionales
     cols_basic = ['Codigo', 'Marca', 'Modelo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'Es_Oferta', 'Hoja_Origen', 'Subtotal_Bruto']
+    # Si hay datos de embalaje, los agregamos
     if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
         cols_extra = ['Embalaje', 'CantidadPorCaja', 'UnidadPrecio']
         cols_show = cols_basic + [c for c in cols_extra if c in df_carrito.columns]
@@ -423,6 +424,7 @@ if st.session_state.carrito:
 
     st.markdown("#### Bonificaciones y Cierre")
     col_desc1, col_desc2, col_desc3, col_totales = st.columns([1, 1, 1, 2])
+
     desc_gen = col_desc1.number_input("Desc. General (%)", min_value=0.0, max_value=100.0, value=30.0, step=1.0)
     desc_ad1 = col_desc2.number_input("Desc. Adicional 1 (%)", min_value=0.0, max_value=100.0, value=0.0, step=1.0)
     desc_ad2 = col_desc3.number_input("Desc. Adicional 2 (%)", min_value=0.0, max_value=100.0, value=0.0, step=1.0)
@@ -431,6 +433,7 @@ if st.session_state.carrito:
     descuentos_usados = [f"-{d}%" for d in [desc_gen, desc_ad1, desc_ad2] if d > 0]
     texto_descuentos = " ".join(descuentos_usados) if descuentos_usados else "Sin bonificación"
 
+    # Calcular neto, descuento e IVA por producto
     def calcular_neto(row):
         if is_discount_applicable(row):
             neto = row['Subtotal_Bruto'] * multiplicador_desc
@@ -448,23 +451,31 @@ if st.session_state.carrito:
     total_final = total_neto + total_iva
     total_descuento = total_bruto - total_neto
 
-    st.markdown("#### Detalle de Descuentos por Producto")
-    detalle = df_carrito[['Codigo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado']].copy()
+    # Tabla de detalle con IVA incluido
+    st.markdown("#### Detalle por Producto (con IVA)")
+    detalle = df_carrito[['Codigo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado', 'Monto_IVA']].copy()
     detalle['Monto_Descuento'] = detalle['Monto_Descuento'].apply(lambda x: f"${x:,.2f}" if x > 0 else "$0.00")
     detalle['Neto_Calculado'] = detalle['Neto_Calculado'].apply(lambda x: f"${x:,.2f}")
     detalle['Subtotal_Bruto'] = detalle['Subtotal_Bruto'].apply(lambda x: f"${x:,.2f}")
+    detalle['Monto_IVA'] = detalle['Monto_IVA'].apply(lambda x: f"${x:,.2f}")
     st.dataframe(detalle, use_container_width=True)
 
     col_totales.metric("Subtotal Bruto", f"${total_bruto:,.2f}")
     col_totales.metric(f"Descuentos ({texto_descuentos})", f"${total_descuento:,.2f}")
     col_totales.metric("Neto (con descuentos)", f"${total_neto:,.2f}")
+    col_totales.metric("IVA Total", f"${total_iva:,.2f}")
     col_totales.metric("Total Final (Inc. IVA)", f"${total_final:,.2f}")
 
+    # 5. EXPORTACIÓN A PDF (MEJORADO)
     st.markdown("---")
     if st.button("📄 Generar PDF del Pedido", type="primary"):
         if cliente_seleccionado is None:
             st.error("Debes seleccionar un cliente antes de generar el PDF.")
             st.stop()
+
+        # Función para formatear moneda
+        def fmt_currency(val):
+            return f"${val:,.2f}"
 
         pdf = FPDF()
         pdf.add_page()
@@ -479,43 +490,57 @@ if st.session_state.carrito:
         pdf.cell(0, 6, f"Vendedor: {cli_info.get('NOMB.VENDEDOR', '-')}", ln=True)
         pdf.ln(10)
 
+        # Cabecera de tabla
         pdf.set_font("Arial", 'B', 8)
-        pdf.cell(20, 8, "Codigo", border=1)
-        pdf.cell(20, 8, "Marca", border=1)
-        pdf.cell(25, 8, "Modelo", border=1)
-        pdf.cell(45, 8, "Descripcion", border=1)
+        # Columnas: Codigo (18), Marca (18), Modelo (22), Descripcion (35), Emb (12), Caja (12), Unidad (14), Cant (12), P.Unit (18), Subtotal (20), Desc (18), Neto (20), IVA (18)
+        # Total ancho aprox: 18+18+22+35+12+12+14+12+18+20+18+20+18 = 237 mm (cabe en A4 210mm? necesitamos reducir)
+        # Ajustamos: Codigo 15, Marca 15, Modelo 18, Descripcion 30, Emb 10, Caja 10, Unidad 12, Cant 10, P.Unit 15, Subtotal 18, Desc 15, Neto 18, IVA 15 => total 201 mm, ok.
+        pdf.cell(15, 8, "Codigo", border=1)
+        pdf.cell(15, 8, "Marca", border=1)
+        pdf.cell(18, 8, "Modelo", border=1)
+        pdf.cell(30, 8, "Descripcion", border=1)
+        # Si hay datos de embalaje, agregar columnas extra
         if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
-            pdf.cell(18, 8, "Emb.", border=1)
-            pdf.cell(18, 8, "Caja", border=1)
-            pdf.cell(18, 8, "Unidad", border=1)
-        pdf.cell(12, 8, "Cant", border=1, align='C')
-        pdf.cell(22, 8, "P.Unit", border=1, align='R')
-        pdf.cell(22, 8, "Subtotal", border=1, align='R')
-        pdf.cell(18, 8, "Desc.", border=1, align='R')
-        pdf.cell(22, 8, "Neto", border=1, align='R')
+            pdf.cell(10, 8, "Emb.", border=1)
+            pdf.cell(10, 8, "Caja", border=1)
+            pdf.cell(12, 8, "Unidad", border=1)
+        pdf.cell(10, 8, "Cant", border=1, align='C')
+        pdf.cell(15, 8, "P.Unit", border=1, align='R')
+        pdf.cell(18, 8, "Subtotal", border=1, align='R')
+        pdf.cell(15, 8, "Desc.", border=1, align='R')
+        pdf.cell(18, 8, "Neto", border=1, align='R')
+        pdf.cell(15, 8, "IVA", border=1, align='R')
         pdf.ln()
 
         pdf.set_font("Arial", '', 7)
         for _, row in df_carrito.iterrows():
-            desc_corta = str(row['Descripcion'])[:35]
-            marca_corta = str(row['Marca'])[:15]
-            modelo_corta = str(row['Modelo'])[:18]
+            desc_corta = str(row['Descripcion'])[:28]
+            marca_corta = str(row['Marca'])[:12]
+            modelo_corta = str(row['Modelo'])[:15]
 
-            pdf.cell(20, 6, str(row['Codigo']), border=1)
-            pdf.cell(20, 6, marca_corta, border=1)
-            pdf.cell(25, 6, modelo_corta, border=1)
-            pdf.cell(45, 6, desc_corta, border=1)
+            pdf.cell(15, 6, str(row['Codigo'])[:10], border=1)
+            pdf.cell(15, 6, marca_corta, border=1)
+            pdf.cell(18, 6, modelo_corta, border=1)
+            pdf.cell(30, 6, desc_corta, border=1)
 
+            # Datos de embalaje
             if 'Embalaje' in row and row['Embalaje']:
-                pdf.cell(18, 6, str(row['Embalaje'])[:6], border=1)
-                pdf.cell(18, 6, str(row['CantidadPorCaja'])[:6], border=1)
-                pdf.cell(18, 6, str(row['UnidadPrecio'])[:6], border=1)
+                pdf.cell(10, 6, str(row['Embalaje'])[:6], border=1)
+                pdf.cell(10, 6, str(row['CantidadPorCaja'])[:6], border=1)
+                pdf.cell(12, 6, str(row['UnidadPrecio'])[:6], border=1)
+            else:
+                # Si no hay, dejar celdas vacías (pero igual dibujar las columnas)
+                if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
+                    pdf.cell(10, 6, "", border=1)
+                    pdf.cell(10, 6, "", border=1)
+                    pdf.cell(12, 6, "", border=1)
 
-            pdf.cell(12, 6, str(row['Cantidad']), border=1, align='C')
-            pdf.cell(22, 6, f"${row['Precio_Unitario']:,.2f}", border=1, align='R')
-            pdf.cell(22, 6, f"${row['Subtotal_Bruto']:,.2f}", border=1, align='R')
-            pdf.cell(18, 6, f"${row['Monto_Descuento']:,.2f}", border=1, align='R')
-            pdf.cell(22, 6, f"${row['Neto_Calculado']:,.2f}", border=1, align='R')
+            pdf.cell(10, 6, str(int(row['Cantidad'])) if row['Cantidad'].is_integer() else f"{row['Cantidad']:.1f}", border=1, align='C')
+            pdf.cell(15, 6, fmt_currency(row['Precio_Unitario']), border=1, align='R')
+            pdf.cell(18, 6, fmt_currency(row['Subtotal_Bruto']), border=1, align='R')
+            pdf.cell(15, 6, fmt_currency(row['Monto_Descuento']), border=1, align='R')
+            pdf.cell(18, 6, fmt_currency(row['Neto_Calculado']), border=1, align='R')
+            pdf.cell(15, 6, fmt_currency(row['Monto_IVA']), border=1, align='R')
             pdf.ln()
 
         pdf.ln(5)
@@ -525,19 +550,19 @@ if st.session_state.carrito:
 
         pdf.set_font("Arial", 'B', 10)
         pdf.cell(150, 6, "Subtotal Bruto (Sin Desc):", align='R')
-        pdf.cell(40, 6, f"${total_bruto:,.2f}", align='R')
+        pdf.cell(40, 6, fmt_currency(total_bruto), align='R')
         pdf.ln()
         pdf.cell(150, 6, f"Descuentos ({texto_descuentos}):", align='R')
-        pdf.cell(40, 6, f"${total_descuento:,.2f}", align='R')
+        pdf.cell(40, 6, fmt_currency(total_descuento), align='R')
         pdf.ln()
         pdf.cell(150, 6, "Neto:", align='R')
-        pdf.cell(40, 6, f"${total_neto:,.2f}", align='R')
+        pdf.cell(40, 6, fmt_currency(total_neto), align='R')
         pdf.ln()
         pdf.cell(150, 6, "IVA Total:", align='R')
-        pdf.cell(40, 6, f"${total_iva:,.2f}", align='R')
+        pdf.cell(40, 6, fmt_currency(total_iva), align='R')
         pdf.ln()
         pdf.cell(150, 8, "TOTAL FINAL:", align='R')
-        pdf.cell(40, 8, f"${total_final:,.2f}", align='R')
+        pdf.cell(40, 8, fmt_currency(total_final), align='R')
 
         fd, path = tempfile.mkstemp(suffix=".pdf")
         try:
