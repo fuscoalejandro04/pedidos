@@ -124,7 +124,6 @@ def standardize_product_columns(df, filename):
     elif "Einhell" in filename:
         if 'Hoja_Origen' not in df.columns:
             df['Hoja_Origen'] = 'Einhell'
-        # Asegurar que la columna Marca exista
         if 'Marca' not in df.columns:
             df['Marca'] = 'Einhell'
     elif "Fijaciones" in filename:
@@ -200,7 +199,7 @@ else:
 st.markdown("---")
 
 # ------------------------------------------------------------
-# 3. CATÁLOGO Y AGREGADO AL CARRITO
+# 3. CATÁLOGO Y AGREGADO AL CARRITO (CON BUSCADOR MEJORADO)
 # ------------------------------------------------------------
 st.subheader("2. Catálogo de Productos")
 
@@ -226,33 +225,35 @@ if busqueda:
         return all(p in text for p in palabras)
 
     mask = df_filtrado.apply(matches_all, axis=1)
-    df_filtrado = df_filtrado[mask]
+    df_filtrado = df_filtrado.loc[mask].copy()
 
-    # Ordenar por relevancia
-    def relevance_score(row):
-        score = 0
-        cod = row['Codigo_norm']
-        mod = row['Modelo_norm']
-        desc = row['Descripcion_norm']
-        for p in palabras:
-            if p in cod:
-                score += 10
-            if p in mod:
-                score += 5
-            if p in desc:
-                score += 1
-        return score
+    if not df_filtrado.empty:
+        def relevance_score(row):
+            score = 0
+            cod = row['Codigo_norm']
+            mod = row['Modelo_norm']
+            desc = row['Descripcion_norm']
+            for p in palabras:
+                if p in cod:
+                    score += 10
+                if p in mod:
+                    score += 5
+                if p in desc:
+                    score += 1
+            return score
 
-    df_filtrado['Relevance'] = df_filtrado.apply(relevance_score, axis=1)
-    df_filtrado = df_filtrado.sort_values('Relevance', ascending=False)
-    df_filtrado = df_filtrado.drop(columns=['Codigo_norm', 'Modelo_norm', 'Descripcion_norm', 'Marca_norm', 'Relevance'])
+        df_filtrado['Relevance'] = df_filtrado.apply(relevance_score, axis=1)
+        df_filtrado = df_filtrado.sort_values('Relevance', ascending=False)
+        df_filtrado = df_filtrado.drop(columns=['Codigo_norm', 'Modelo_norm', 'Descripcion_norm', 'Marca_norm', 'Relevance'])
+    else:
+        # Si quedó vacío, eliminar las columnas auxiliares
+        df_filtrado = df_filtrado.drop(columns=['Codigo_norm', 'Modelo_norm', 'Descripcion_norm', 'Marca_norm'])
 
 st.markdown("##### Agregar al Pedido")
 if not df_filtrado.empty:
     def format_display(row):
         precio = row['Precio_Oferta'] if row['Es_Oferta'] else row['Precio_Lista']
         etiqueta = "🔥 OFERTA " if row['Es_Oferta'] else ""
-        # Si es de baterías, agregar un indicador
         if row.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(row['Hoja_Origen']).upper():
             etiqueta += "🔋 BATERÍA "
         desc = str(row['Descripcion'])[:30]
