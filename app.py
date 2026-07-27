@@ -54,7 +54,7 @@ def get_product_price_info(row):
                 ayuda = f"Sugerido: múltiplos de {step} (caja de {step} unidades)"
             else:
                 ayuda = f"Precio por {unidad_num} unidades: ${precio_lista:,.2f}"
-            return precio_unitario, step, ayuda, precio_lista  # precio_presentacion
+            return precio_unitario, step, ayuda, precio_lista
     except:
         pass
 
@@ -84,7 +84,7 @@ def extract_einhell_categories(herramienta_str):
     Devuelve (categoria_generica, tipo_alimentacion) a partir del campo Herramienta.
     Ejemplo: "ROTOMARTILLO INALÁMBRICO" -> ("Rotomartillo", "Inalámbrica")
     """
-    if not isinstance(herramienta_str, str):
+    if not isinstance(herramienta_str, str) or pd.isna(herramienta_str):
         return None, None
     h = herramienta_str.upper()
     # Definir palabras clave
@@ -219,7 +219,6 @@ def standardize_product_columns(df, filename):
             df['Hoja_Origen'] = 'Einhell'
         if 'Marca' not in df.columns:
             df['Marca'] = 'Einhell'
-        # 'Herramienta' ya existe
         for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio']:
             if extra not in df.columns:
                 df[extra] = None
@@ -408,21 +407,17 @@ if not df_filtrado.empty:
     # Extraer código base (solo dígitos)
     df_filtrado['Codigo_Base'] = df_filtrado['Codigo'].astype(str).apply(lambda x: re.sub(r'[^0-9]', '', x))
     # Agrupar por código base y marca para ofrecer presentaciones
-    # Creamos una columna 'Clave_Producto' = Codigo_Base + Marca
     df_filtrado['Clave_Producto'] = df_filtrado['Codigo_Base'] + '_' + df_filtrado['Marca']
 
     # Para el dropdown, mostraremos una representación única de cada producto (la primera fila de cada grupo)
-    # Pero queremos que el usuario pueda elegir presentación. Vamos a ofrecer un selectbox de presentación después de seleccionar el producto.
-    # Primero, mostramos un dropdown de productos (por clave)
     productos_unicos = df_filtrado.drop_duplicates(subset=['Clave_Producto']).copy()
-    # Para mostrar en el dropdown, usamos la primera fila de cada grupo (tomamos la primera aparición)
+    # Convertir Descripcion a string antes de hacer slicing
+    productos_unicos['Descripcion_str'] = productos_unicos['Descripcion'].astype(str)
     productos_unicos['Display'] = productos_unicos.apply(
-        lambda row: f"{row['Codigo']} | {row['Marca']} | {row['Descripcion'][:30]}", axis=1
+        lambda row: f"{row['Codigo']} | {row['Marca']} | {row['Descripcion_str'][:30]}", axis=1
     )
     display_options = productos_unicos['Display'].tolist()
 
-    # Si hay varias presentaciones, guardamos las opciones en session_state para usarlas después
-    # Necesitamos saber qué clave de producto seleccionó el usuario
     col_sel, col_qty, col_btn = st.columns([3, 1, 1])
     prod_seleccionado_display = col_sel.selectbox("Seleccione el producto:", options=display_options)
 
@@ -572,12 +567,10 @@ if st.session_state.carrito:
             with col1:
                 st.write(f"**{i+1}**")
             with col2:
-                st.write(f"{item['Codigo']} - {item['Descripcion'][:30]}")
+                st.write(f"{item['Codigo']} - {str(item['Descripcion'])[:30]}")
             with col3:
-                # Mostrar precio unitario
                 st.write(f"${item['Precio_Unitario']:,.2f}")
             with col4:
-                # Campo de cantidad
                 new_qty = st.number_input(
                     "Cant.",
                     min_value=0,
@@ -594,7 +587,6 @@ if st.session_state.carrito:
                 if st.button("🗑️", key=f"del_{i}", help="Eliminar producto"):
                     update_carrito(i, None)
             with col7:
-                # Mostrar información de embalaje
                 emb = item.get('Embalaje', '')
                 if emb:
                     st.caption(emb)
