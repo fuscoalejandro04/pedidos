@@ -28,6 +28,60 @@ def normalize_text(text):
     return text.lower()
 
 # ------------------------------------------------------------
+# FUNCIÓN PARA OBTENER INFORMACIÓN DE PRECIO Y EMBALAJE
+# ------------------------------------------------------------
+def get_product_price_info(row):
+    """
+    Devuelve el precio unitario real, el paso sugerido para la cantidad,
+    y un texto de ayuda, basado en UnidadPrecio y CantidadPorCaja.
+    """
+    precio_lista = row['Precio_Lista']
+    unidad = str(row.get('UnidadPrecio', '')) if pd.notna(row.get('UnidadPrecio')) else ''
+    caja = str(row.get('CantidadPorCaja', '')) if pd.notna(row.get('CantidadPorCaja')) else ''
+    embalaje = str(row.get('Embalaje', '')) if pd.notna(row.get('Embalaje')) else ''
+
+    # Intentar convertir unidad a numérico
+    try:
+        unidad_num = float(unidad)
+        if unidad_num > 0:
+            precio_unitario = precio_lista / unidad_num
+            # Paso sugerido: si existe cantidad por caja, usarlo; sino 1
+            try:
+                step = float(caja) if caja else 1.0
+            except:
+                step = 1.0
+            # Texto de ayuda
+            if caja:
+                ayuda = f"Sugerido: múltiplos de {step} (caja de {step} unidades)"
+            else:
+                ayuda = f"Precio por {unidad_num} unidades: ${precio_lista:,.2f}"
+            return precio_unitario, step, ayuda
+    except:
+        pass
+
+    # Si no es numérico, asumimos que el precio es por unidad
+    # Si es GRANEL, BOLSA, JARRA, etc., el precio es unitario
+    precio_unitario = precio_lista
+    # Paso sugerido: si hay cantidad por caja, usarlo, sino 1
+    try:
+        step = float(caja) if caja else 1.0
+    except:
+        step = 1.0
+
+    # Texto de ayuda según embalaje
+    if embalaje.upper() == "GRANEL":
+        ayuda = "Venta a granel (unidades sueltas)"
+    elif embalaje:
+        ayuda = f"Embalaje: {embalaje}"
+        if caja:
+            ayuda += f" | Caja de {caja} unidades"
+    else:
+        ayuda = "Unidades sueltas"
+
+    return precio_unitario, step, ayuda
+
+
+# ------------------------------------------------------------
 # 1. CARGAR DATOS Y DETECTAR OFERTAS
 # ------------------------------------------------------------
 @st.cache_data
@@ -109,11 +163,7 @@ def load_databases():
 
 
 def standardize_product_columns(df, filename):
-    """
-    Convierte las columnas de cada archivo a un esquema común,
-    pero conserva columnas adicionales útiles (especialmente para Fijaciones).
-    """
-    # Renombrar según el archivo
+    # ... (igual que antes, conserva CantidadPorCaja, Embalaje, UnidadPrecio)
     if "KWB" in filename:
         df = df.rename(columns={'Nombre': 'Modelo'})
         for col in ['Codigo', 'Descripcion', 'Modelo', 'Marca', 'Precio_Lista', 'IVA', 'Hoja_Origen']:
@@ -122,7 +172,6 @@ def standardize_product_columns(df, filename):
         for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio']:
             if extra not in df.columns:
                 df[extra] = None
-
     elif "Einhell" in filename:
         if 'Hoja_Origen' not in df.columns:
             df['Hoja_Origen'] = 'Einhell'
@@ -131,11 +180,8 @@ def standardize_product_columns(df, filename):
         for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio']:
             if extra not in df.columns:
                 df[extra] = None
-
     elif "Fijaciones" in filename:
-        df = df.rename(columns={
-            'PrecioLista': 'Precio_Lista'
-        })
+        df = df.rename(columns={'PrecioLista': 'Precio_Lista'})
         df['Modelo'] = df['Descripcion']
         if 'Marca' not in df.columns:
             df['Marca'] = 'Fijaciones'
@@ -144,7 +190,6 @@ def standardize_product_columns(df, filename):
         for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio']:
             if extra not in df.columns:
                 df[extra] = None
-
     elif "Penosil" in filename:
         df = df.rename(columns={
             'Artículo': 'Codigo',
@@ -158,9 +203,7 @@ def standardize_product_columns(df, filename):
         for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio']:
             if extra not in df.columns:
                 df[extra] = None
-
     else:
-        # Intento genérico
         if 'PrecioLista' in df.columns:
             df = df.rename(columns={'PrecioLista': 'Precio_Lista'})
         if 'Artículo' in df.columns:
@@ -175,15 +218,12 @@ def standardize_product_columns(df, filename):
             if extra not in df.columns:
                 df[extra] = None
 
-    # Asegurar que las columnas requeridas existan
     required = ['Codigo', 'Descripcion', 'Modelo', 'Marca', 'Precio_Lista', 'IVA', 'Hoja_Origen']
     for col in required:
         if col not in df.columns:
             df[col] = None
 
-    # Convertir IVA a numérico
     df['IVA'] = pd.to_numeric(df['IVA'], errors='coerce').fillna(0.21)
-
     return df
 
 
@@ -217,7 +257,7 @@ else:
 st.markdown("---")
 
 # ------------------------------------------------------------
-# 3. CATÁLOGO Y AGREGADO AL CARRITO (CON BUSCADOR MEJORADO)
+# 3. CATÁLOGO Y AGREGADO AL CARRITO (CON BUSCADOR MEJORADO Y CANTIDAD INTELIGENTE)
 # ------------------------------------------------------------
 st.subheader("2. Catálogo de Productos")
 
@@ -232,7 +272,6 @@ if marca_filtro != "Todas":
 
 if busqueda:
     palabras = [normalize_text(p) for p in busqueda.split()]
-    # Crear columnas normalizadas
     df_filtrado['Codigo_norm'] = df_filtrado['Codigo'].astype(str).apply(normalize_text)
     df_filtrado['Modelo_norm'] = df_filtrado['Modelo'].astype(str).apply(normalize_text)
     df_filtrado['Descripcion_norm'] = df_filtrado['Descripcion'].astype(str).apply(normalize_text)
@@ -269,13 +308,14 @@ if busqueda:
 st.markdown("##### Agregar al Pedido")
 
 if not df_filtrado.empty:
-    # Función para generar el texto del dropdown de forma clara
+    # Función para generar el texto del dropdown de forma clara (incluye precio unitario y precio por embalaje)
     def format_display(row):
-        precio = row['Precio_Oferta'] if row['Es_Oferta'] else row['Precio_Lista']
+        precio_unitario, _, _ = get_product_price_info(row)
+        precio_mostrar = row['Precio_Oferta'] if row['Es_Oferta'] else precio_unitario
         etiqueta = "🔥 OFERTA " if row['Es_Oferta'] else ""
         if row.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(row['Hoja_Origen']).upper():
             etiqueta += "🔋 BATERÍA "
-        # Construir información de embalaje
+        # Información de embalaje
         extra_parts = []
         emb = str(row.get('Embalaje', '')) if pd.notna(row.get('Embalaje')) else ''
         caja = str(row.get('CantidadPorCaja', '')) if pd.notna(row.get('CantidadPorCaja')) else ''
@@ -285,32 +325,34 @@ if not df_filtrado.empty:
         if caja:
             extra_parts.append(f"{caja}/caja")
         if unidad:
-            # Si unidad es numérico, mostrar "x100" o similar
             if unidad.isdigit():
                 extra_parts.append(f"x{unidad}")
             else:
                 extra_parts.append(f"({unidad})")
         extra_info = " | " + " ".join(extra_parts) if extra_parts else ""
         desc = str(row['Descripcion'])[:30]
-        return f"{etiqueta}{row['Codigo']} | {row['Marca']} | {row['Modelo']} | {desc}{extra_info} | ${precio:,.2f}"
+        return f"{etiqueta}{row['Codigo']} | {row['Marca']} | {row['Modelo']} | {desc}{extra_info} | ${precio_mostrar:,.2f}"
 
     df_filtrado['Display'] = df_filtrado.apply(format_display, axis=1)
 
     col_sel, col_qty, col_btn = st.columns([3, 1, 1])
     prod_seleccionado = col_sel.selectbox("Seleccione el producto:", options=df_filtrado['Display'].tolist())
-    cantidad = col_qty.number_input("Cantidad:", min_value=1, value=1, step=1)
 
-    # Mostrar detalles del producto seleccionado
+    # --- Panel de detalles del producto seleccionado ---
     if prod_seleccionado:
         prod_idx = df_filtrado[df_filtrado['Display'] == prod_seleccionado].index[0]
         prod_data = df_filtrado.loc[prod_idx]
+        precio_unitario, step_sugerido, ayuda_cantidad = get_product_price_info(prod_data)
+
+        # Mostrar detalles en un expander
         with st.expander("📋 Detalles del producto seleccionado", expanded=True):
             col_det1, col_det2 = st.columns(2)
             col_det1.markdown(f"**Código:** `{prod_data['Codigo']}`")
             col_det1.markdown(f"**Marca:** {prod_data['Marca']}")
             col_det1.markdown(f"**Modelo:** {prod_data['Modelo']}")
             col_det2.markdown(f"**Descripción:** {prod_data['Descripcion']}")
-            # Mostrar info extra si existe
+
+            # Información de empaque
             extra_info = []
             if pd.notna(prod_data.get('Embalaje')):
                 extra_info.append(f"**Embalaje:** {prod_data['Embalaje']}")
@@ -320,48 +362,82 @@ if not df_filtrado.empty:
                 extra_info.append(f"**Unidad de Precio:** {prod_data['UnidadPrecio']}")
             if extra_info:
                 st.markdown("**Datos de empaque:** " + " | ".join(extra_info))
-            precio = prod_data['Precio_Oferta'] if prod_data['Es_Oferta'] else prod_data['Precio_Lista']
-            st.markdown(f"**Precio unitario:** ${precio:,.2f} {'(Oferta)' if prod_data['Es_Oferta'] else ''}")
+
+            # Precios
+            precio_oferta = prod_data['Precio_Oferta'] if prod_data['Es_Oferta'] else None
+            if prod_data['Es_Oferta']:
+                st.markdown(f"**Precio unitario (oferta):** ${precio_oferta:,.2f}")
+            else:
+                st.markdown(f"**Precio unitario:** ${precio_unitario:,.2f}")
+                # Mostrar precio por embalaje si UnidadPrecio es numérico
+                unidad = str(prod_data.get('UnidadPrecio', '')) if pd.notna(prod_data.get('UnidadPrecio')) else ''
+                if unidad.isdigit():
+                    precio_por_embalaje = prod_data['Precio_Lista']
+                    st.markdown(f"**Precio por {unidad} unidades:** ${precio_por_embalaje:,.2f}")
+
             if prod_data.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(prod_data['Hoja_Origen']).upper():
                 st.info("🔋 Este producto es de la hoja BATERÍAS Y CARGADORES y no recibe descuentos adicionales.")
 
-    if col_btn.button("➕ Agregar al Carrito", use_container_width=True):
-        prod_idx = df_filtrado[df_filtrado['Display'] == prod_seleccionado].index[0]
-        prod_data = df_filtrado.loc[prod_idx]
+        # --- Campo de cantidad con inteligencia ---
+        # Si el producto es oferta, usamos el precio de oferta para el unitario (ya viene en Precio_Oferta)
+        # Pero el precio unitario para oferta ya es el precio por unidad (no dividir)
+        if prod_data['Es_Oferta']:
+            precio_unitario_a_usar = prod_data['Precio_Oferta']
+        else:
+            precio_unitario_a_usar = precio_unitario
 
-        precio_usar = prod_data['Precio_Oferta'] if prod_data['Es_Oferta'] else prod_data['Precio_Lista']
+        # Si step_sugerido es mayor que 1, mostrar un texto de ayuda
+        if step_sugerido > 1:
+            ayuda_texto = f"💡 {ayuda_cantidad}"
+        else:
+            ayuda_texto = ayuda_cantidad
 
-        st.session_state.carrito.append({
-            "Codigo": str(prod_data['Codigo']),
-            "Descripcion": str(prod_data['Descripcion']),
-            "Modelo": str(prod_data['Modelo']),
-            "Marca": str(prod_data['Marca']),
-            "Hoja_Origen": str(prod_data['Hoja_Origen']),
-            "Cantidad": cantidad,
-            "Precio_Unitario": precio_usar,
-            "Es_Oferta": prod_data['Es_Oferta'],
-            "IVA": prod_data['IVA'],
-            "Subtotal_Bruto": precio_usar * cantidad,
-            # Campos extra para Fijaciones
-            "Embalaje": str(prod_data.get('Embalaje', '')) if pd.notna(prod_data.get('Embalaje')) else '',
-            "CantidadPorCaja": str(prod_data.get('CantidadPorCaja', '')) if pd.notna(prod_data.get('CantidadPorCaja')) else '',
-            "UnidadPrecio": str(prod_data.get('UnidadPrecio', '')) if pd.notna(prod_data.get('UnidadPrecio')) else ''
-        })
-        st.success(f"¡Agregado: {cantidad}x {prod_data['Codigo']}!")
+        # Mostrar el input de cantidad con el step sugerido (pero permitiendo cualquier valor)
+        cantidad = col_qty.number_input(
+            "Cantidad:",
+            min_value=0.0 if step_sugerido < 1 else 0,
+            value=float(step_sugerido) if step_sugerido > 0 else 1.0,
+            step=float(step_sugerido) if step_sugerido > 0 else 1.0,
+            format="%g"
+        )
+        # Mostrar ayuda debajo
+        if ayuda_texto:
+            st.caption(ayuda_texto)
+
+        # Botón agregar
+        if col_btn.button("➕ Agregar al Carrito", use_container_width=True):
+            if cantidad <= 0:
+                st.error("La cantidad debe ser mayor a 0.")
+            else:
+                st.session_state.carrito.append({
+                    "Codigo": str(prod_data['Codigo']),
+                    "Descripcion": str(prod_data['Descripcion']),
+                    "Modelo": str(prod_data['Modelo']),
+                    "Marca": str(prod_data['Marca']),
+                    "Hoja_Origen": str(prod_data['Hoja_Origen']),
+                    "Cantidad": cantidad,
+                    "Precio_Unitario": precio_unitario_a_usar,
+                    "Es_Oferta": prod_data['Es_Oferta'],
+                    "IVA": prod_data['IVA'],
+                    "Subtotal_Bruto": precio_unitario_a_usar * cantidad,
+                    "Embalaje": str(prod_data.get('Embalaje', '')) if pd.notna(prod_data.get('Embalaje')) else '',
+                    "CantidadPorCaja": str(prod_data.get('CantidadPorCaja', '')) if pd.notna(prod_data.get('CantidadPorCaja')) else '',
+                    "UnidadPrecio": str(prod_data.get('UnidadPrecio', '')) if pd.notna(prod_data.get('UnidadPrecio')) else ''
+                })
+                st.success(f"¡Agregado: {cantidad}x {prod_data['Codigo']}!")
 else:
     st.info("No se encontraron productos con esa búsqueda.")
 
 st.markdown("---")
 
 # ------------------------------------------------------------
-# 4. RESUMEN DEL PEDIDO CON DETALLE DE DESCUENTOS
+# 4. RESUMEN DEL PEDIDO CON DETALLE DE DESCUENTOS (sin cambios)
 # ------------------------------------------------------------
 st.subheader("3. Resumen del Pedido")
 
 if st.session_state.carrito:
     df_carrito = pd.DataFrame(st.session_state.carrito)
 
-    # Verificar si un producto recibe descuento
     def is_discount_applicable(row):
         if row['Es_Oferta']:
             return False
@@ -369,9 +445,8 @@ if st.session_state.carrito:
             return False
         return True
 
-    # Mostrar tabla resumen con columnas adicionales para Fijaciones
+    # Mostrar tabla resumen (igual que antes, con columnas extra)
     cols_basic = ['Codigo', 'Marca', 'Modelo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'Es_Oferta', 'Hoja_Origen', 'Subtotal_Bruto']
-    # Si hay datos de embalaje, los agregamos
     if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
         cols_extra = ['Embalaje', 'CantidadPorCaja', 'UnidadPrecio']
         cols_show = cols_basic + [c for c in cols_extra if c in df_carrito.columns]
@@ -399,7 +474,6 @@ if st.session_state.carrito:
     descuentos_usados = [f"-{d}%" for d in [desc_gen, desc_ad1, desc_ad2] if d > 0]
     texto_descuentos = " ".join(descuentos_usados) if descuentos_usados else "Sin bonificación"
 
-    # Calcular neto y descuento por producto
     def calcular_neto(row):
         if is_discount_applicable(row):
             neto = row['Subtotal_Bruto'] * multiplicador_desc
@@ -417,7 +491,6 @@ if st.session_state.carrito:
     total_final = total_neto + total_iva
     total_descuento = total_bruto - total_neto
 
-    # Detalle de descuentos por producto
     st.markdown("#### Detalle de Descuentos por Producto")
     detalle = df_carrito[['Codigo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado']].copy()
     detalle['Monto_Descuento'] = detalle['Monto_Descuento'].apply(lambda x: f"${x:,.2f}" if x > 0 else "$0.00")
@@ -430,7 +503,7 @@ if st.session_state.carrito:
     col_totales.metric("Neto (con descuentos)", f"${total_neto:,.2f}")
     col_totales.metric("Total Final (Inc. IVA)", f"${total_final:,.2f}")
 
-    # 5. EXPORTACIÓN A PDF
+    # 5. PDF (sin cambios relevantes)
     st.markdown("---")
     if st.button("📄 Generar PDF del Pedido", type="primary"):
         if cliente_seleccionado is None:
@@ -450,13 +523,11 @@ if st.session_state.carrito:
         pdf.cell(0, 6, f"Vendedor: {cli_info.get('NOMB.VENDEDOR', '-')}", ln=True)
         pdf.ln(10)
 
-        # Cabecera de tabla (anchos ajustados)
         pdf.set_font("Arial", 'B', 8)
         pdf.cell(20, 8, "Codigo", border=1)
         pdf.cell(20, 8, "Marca", border=1)
         pdf.cell(25, 8, "Modelo", border=1)
         pdf.cell(45, 8, "Descripcion", border=1)
-        # Si hay datos de embalaje, agregar columnas extra
         if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
             pdf.cell(18, 8, "Emb.", border=1)
             pdf.cell(18, 8, "Caja", border=1)
@@ -479,7 +550,6 @@ if st.session_state.carrito:
             pdf.cell(25, 6, modelo_corta, border=1)
             pdf.cell(45, 6, desc_corta, border=1)
 
-            # Extra info si existe
             if 'Embalaje' in row and row['Embalaje']:
                 pdf.cell(18, 6, str(row['Embalaje'])[:6], border=1)
                 pdf.cell(18, 6, str(row['CantidadPorCaja'])[:6], border=1)
