@@ -60,15 +60,12 @@ def get_product_price_info(row):
         pass
 
     # Si no es numérico, asumimos que el precio es por unidad
-    # Si es GRANEL, BOLSA, JARRA, etc., el precio es unitario
     precio_unitario = precio_lista
-    # Paso sugerido: si hay cantidad por caja, usarlo, sino 1
     try:
         step = float(caja) if caja else 1.0
     except:
         step = 1.0
 
-    # Texto de ayuda según embalaje
     if embalaje.upper() == "GRANEL":
         ayuda = "Venta a granel (unidades sueltas)"
     elif embalaje:
@@ -80,20 +77,17 @@ def get_product_price_info(row):
 
     return precio_unitario, step, ayuda
 
-
 # ------------------------------------------------------------
 # 1. CARGAR DATOS Y DETECTAR OFERTAS
 # ------------------------------------------------------------
 @st.cache_data
 def load_databases():
-    # Cargar clientes
     try:
         df_cli = pd.read_excel("DB_Clientes_Limpia.xlsx")
     except FileNotFoundError:
         st.error("No se encontró el archivo DB_Clientes_Limpia.xlsx. Por favor, asegúrate de que exista.")
         st.stop()
 
-    # Lista de archivos de productos a cargar
     product_files = [
         "KWB_Limpia.xlsx",
         "Einhell_Limpia.xlsx",
@@ -117,44 +111,28 @@ def load_databases():
         st.stop()
 
     df_prod = pd.concat(dfs, ignore_index=True)
-
-    # 🔴 REGLA CLAVE: Forzar que todos los códigos sean TEXTO y sin espacios
     df_prod['Codigo'] = df_prod['Codigo'].astype(str).str.strip()
-
-    # Asegurar que el precio de lista sea numérico
     df_prod['Precio_Lista'] = pd.to_numeric(df_prod['Precio_Lista'], errors='coerce').fillna(0)
     df_prod['Precio_Oferta'] = 0.0
     df_prod['Es_Oferta'] = False
 
-    # Buscar dinámicamente archivos de oferta en la carpeta
     archivos_oferta = glob.glob("*oferta*.xls*") + glob.glob("*OFERTA*.xls*")
-
     for archivo in archivos_oferta:
         try:
             df_of = pd.read_excel(archivo)
             df_of.columns = [str(c).strip().upper() for c in df_of.columns]
-
             col_codigo = "CÓDIGO" if "CÓDIGO" in df_of.columns else "CODIGO" if "CODIGO" in df_of.columns else None
             col_precio = [c for c in df_of.columns if "PRECIO" in c]
-
             if col_codigo and col_precio:
                 col_precio = col_precio[0]
                 df_of_limpio = df_of[[col_codigo, col_precio]].copy()
                 df_of_limpio.columns = ['Codigo', 'Precio_Promocional']
-
-                # Forzar formato de texto
                 df_of_limpio['Codigo'] = df_of_limpio['Codigo'].astype(str).str.strip()
                 df_of_limpio['Precio_Promocional'] = pd.to_numeric(df_of_limpio['Precio_Promocional'], errors='coerce').fillna(0)
-
-                # Cruzar con el catálogo maestro
                 df_prod = pd.merge(df_prod, df_of_limpio, on='Codigo', how='left')
-
-                # Actualizar los que tienen oferta
                 condicion_oferta = df_prod['Precio_Promocional'] > 0
                 df_prod.loc[condicion_oferta, 'Precio_Oferta'] = df_prod.loc[condicion_oferta, 'Precio_Promocional']
                 df_prod.loc[condicion_oferta, 'Es_Oferta'] = True
-
-                # Limpiar columna temporal
                 df_prod = df_prod.drop(columns=['Precio_Promocional'])
         except Exception as e:
             st.sidebar.warning(f"No se pudo procesar el archivo de oferta {archivo}: {e}")
@@ -163,7 +141,6 @@ def load_databases():
 
 
 def standardize_product_columns(df, filename):
-    # ... (igual que antes, conserva CantidadPorCaja, Embalaje, UnidadPrecio)
     if "KWB" in filename:
         df = df.rename(columns={'Nombre': 'Modelo'})
         for col in ['Codigo', 'Descripcion', 'Modelo', 'Marca', 'Precio_Lista', 'IVA', 'Hoja_Origen']:
@@ -222,7 +199,6 @@ def standardize_product_columns(df, filename):
     for col in required:
         if col not in df.columns:
             df[col] = None
-
     df['IVA'] = pd.to_numeric(df['IVA'], errors='coerce').fillna(0.21)
     return df
 
@@ -243,7 +219,6 @@ st.subheader("1. Selección de Cliente")
 if 'DENOMINACÍON LEGAL' in df_clientes.columns:
     lista_clientes = sorted(df_clientes['DENOMINACÍON LEGAL'].dropna().unique())
     cliente_seleccionado = st.selectbox("Buscar / Seleccionar Cliente:", options=lista_clientes)
-
     cli_info = df_clientes[df_clientes['DENOMINACÍON LEGAL'] == cliente_seleccionado].iloc[0]
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("CUIT", str(cli_info.get('C.U.I.T.', '-')))
@@ -308,14 +283,12 @@ if busqueda:
 st.markdown("##### Agregar al Pedido")
 
 if not df_filtrado.empty:
-    # Función para generar el texto del dropdown de forma clara (incluye precio unitario y precio por embalaje)
     def format_display(row):
         precio_unitario, _, _ = get_product_price_info(row)
         precio_mostrar = row['Precio_Oferta'] if row['Es_Oferta'] else precio_unitario
         etiqueta = "🔥 OFERTA " if row['Es_Oferta'] else ""
         if row.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(row['Hoja_Origen']).upper():
             etiqueta += "🔋 BATERÍA "
-        # Información de embalaje
         extra_parts = []
         emb = str(row.get('Embalaje', '')) if pd.notna(row.get('Embalaje')) else ''
         caja = str(row.get('CantidadPorCaja', '')) if pd.notna(row.get('CantidadPorCaja')) else ''
@@ -338,21 +311,17 @@ if not df_filtrado.empty:
     col_sel, col_qty, col_btn = st.columns([3, 1, 1])
     prod_seleccionado = col_sel.selectbox("Seleccione el producto:", options=df_filtrado['Display'].tolist())
 
-    # --- Panel de detalles del producto seleccionado ---
     if prod_seleccionado:
         prod_idx = df_filtrado[df_filtrado['Display'] == prod_seleccionado].index[0]
         prod_data = df_filtrado.loc[prod_idx]
         precio_unitario, step_sugerido, ayuda_cantidad = get_product_price_info(prod_data)
 
-        # Mostrar detalles en un expander
         with st.expander("📋 Detalles del producto seleccionado", expanded=True):
             col_det1, col_det2 = st.columns(2)
             col_det1.markdown(f"**Código:** `{prod_data['Codigo']}`")
             col_det1.markdown(f"**Marca:** {prod_data['Marca']}")
             col_det1.markdown(f"**Modelo:** {prod_data['Modelo']}")
             col_det2.markdown(f"**Descripción:** {prod_data['Descripcion']}")
-
-            # Información de empaque
             extra_info = []
             if pd.notna(prod_data.get('Embalaje')):
                 extra_info.append(f"**Embalaje:** {prod_data['Embalaje']}")
@@ -363,48 +332,39 @@ if not df_filtrado.empty:
             if extra_info:
                 st.markdown("**Datos de empaque:** " + " | ".join(extra_info))
 
-            # Precios
             precio_oferta = prod_data['Precio_Oferta'] if prod_data['Es_Oferta'] else None
             if prod_data['Es_Oferta']:
                 st.markdown(f"**Precio unitario (oferta):** ${precio_oferta:,.2f}")
             else:
                 st.markdown(f"**Precio unitario:** ${precio_unitario:,.2f}")
-                # Mostrar precio por embalaje si UnidadPrecio es numérico
                 unidad = str(prod_data.get('UnidadPrecio', '')) if pd.notna(prod_data.get('UnidadPrecio')) else ''
                 if unidad.isdigit():
                     precio_por_embalaje = prod_data['Precio_Lista']
                     st.markdown(f"**Precio por {unidad} unidades:** ${precio_por_embalaje:,.2f}")
-
             if prod_data.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(prod_data['Hoja_Origen']).upper():
                 st.info("🔋 Este producto es de la hoja BATERÍAS Y CARGADORES y no recibe descuentos adicionales.")
 
-        # --- Campo de cantidad con inteligencia ---
-        # Si el producto es oferta, usamos el precio de oferta para el unitario (ya viene en Precio_Oferta)
-        # Pero el precio unitario para oferta ya es el precio por unidad (no dividir)
+        # Determinar precio unitario a usar (con oferta o normal)
         if prod_data['Es_Oferta']:
             precio_unitario_a_usar = prod_data['Precio_Oferta']
         else:
             precio_unitario_a_usar = precio_unitario
 
-        # Si step_sugerido es mayor que 1, mostrar un texto de ayuda
-        if step_sugerido > 1:
-            ayuda_texto = f"💡 {ayuda_cantidad}"
-        else:
-            ayuda_texto = ayuda_cantidad
+        # Asegurar step_sugerido sea float y mayor que 0
+        step_final = float(step_sugerido) if step_sugerido > 0 else 1.0
+        valor_inicial = float(step_sugerido) if step_sugerido > 0 else 1.0
 
-        # Mostrar el input de cantidad con el step sugerido (pero permitiendo cualquier valor)
         cantidad = col_qty.number_input(
             "Cantidad:",
-            min_value=0.0 if step_sugerido < 1 else 0,
-            value=float(step_sugerido) if step_sugerido > 0 else 1.0,
-            step=float(step_sugerido) if step_sugerido > 0 else 1.0,
+            min_value=0.0,
+            value=valor_inicial,
+            step=step_final,
             format="%g"
         )
-        # Mostrar ayuda debajo
-        if ayuda_texto:
-            st.caption(ayuda_texto)
 
-        # Botón agregar
+        if ayuda_cantidad:
+            st.caption(ayuda_cantidad)
+
         if col_btn.button("➕ Agregar al Carrito", use_container_width=True):
             if cantidad <= 0:
                 st.error("La cantidad debe ser mayor a 0.")
@@ -431,7 +391,7 @@ else:
 st.markdown("---")
 
 # ------------------------------------------------------------
-# 4. RESUMEN DEL PEDIDO CON DETALLE DE DESCUENTOS (sin cambios)
+# 4. RESUMEN DEL PEDIDO (sin cambios)
 # ------------------------------------------------------------
 st.subheader("3. Resumen del Pedido")
 
@@ -445,7 +405,6 @@ if st.session_state.carrito:
             return False
         return True
 
-    # Mostrar tabla resumen (igual que antes, con columnas extra)
     cols_basic = ['Codigo', 'Marca', 'Modelo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'Es_Oferta', 'Hoja_Origen', 'Subtotal_Bruto']
     if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
         cols_extra = ['Embalaje', 'CantidadPorCaja', 'UnidadPrecio']
@@ -456,7 +415,6 @@ if st.session_state.carrito:
     df_mostrar = df_carrito[cols_show].copy()
     df_mostrar['Es_Oferta'] = df_mostrar['Es_Oferta'].apply(lambda x: "Sí (Neto)" if x else "No")
     df_mostrar['Origen'] = df_mostrar['Hoja_Origen'].apply(lambda x: "Baterías" if "BATERÍAS Y CARGADORES" in str(x).upper() else "Otro")
-
     st.dataframe(df_mostrar, use_container_width=True)
 
     if st.button("🗑️ Vaciar Carrito"):
@@ -465,7 +423,6 @@ if st.session_state.carrito:
 
     st.markdown("#### Bonificaciones y Cierre")
     col_desc1, col_desc2, col_desc3, col_totales = st.columns([1, 1, 1, 2])
-
     desc_gen = col_desc1.number_input("Desc. General (%)", min_value=0.0, max_value=100.0, value=30.0, step=1.0)
     desc_ad1 = col_desc2.number_input("Desc. Adicional 1 (%)", min_value=0.0, max_value=100.0, value=0.0, step=1.0)
     desc_ad2 = col_desc3.number_input("Desc. Adicional 2 (%)", min_value=0.0, max_value=100.0, value=0.0, step=1.0)
@@ -503,7 +460,6 @@ if st.session_state.carrito:
     col_totales.metric("Neto (con descuentos)", f"${total_neto:,.2f}")
     col_totales.metric("Total Final (Inc. IVA)", f"${total_final:,.2f}")
 
-    # 5. PDF (sin cambios relevantes)
     st.markdown("---")
     if st.button("📄 Generar PDF del Pedido", type="primary"):
         if cliente_seleccionado is None:
