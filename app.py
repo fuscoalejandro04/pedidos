@@ -201,7 +201,6 @@ def load_databases():
 
 
 def standardize_product_columns(df, filename):
-    # ... (igual que antes, con la adición de 'Herramienta')
     if 'Herramienta' not in df.columns:
         df['Herramienta'] = None
 
@@ -411,10 +410,10 @@ if not df_filtrado.empty:
 
     # Para el dropdown, mostraremos una representación única de cada producto (la primera fila de cada grupo)
     productos_unicos = df_filtrado.drop_duplicates(subset=['Clave_Producto']).copy()
-    # Convertir Descripcion a string antes de hacer slicing
-    productos_unicos['Descripcion_str'] = productos_unicos['Descripcion'].astype(str)
+    # Asegurar que Descripcion sea string y no None/NaN
+    productos_unicos['Descripcion'] = productos_unicos['Descripcion'].fillna('').astype(str)
     productos_unicos['Display'] = productos_unicos.apply(
-        lambda row: f"{row['Codigo']} | {row['Marca']} | {row['Descripcion_str'][:30]}", axis=1
+        lambda row: f"{row['Codigo']} | {row['Marca']} | {row['Descripcion'][:30]}", axis=1
     )
     display_options = productos_unicos['Display'].tolist()
 
@@ -567,7 +566,7 @@ if st.session_state.carrito:
             with col1:
                 st.write(f"**{i+1}**")
             with col2:
-                st.write(f"{item['Codigo']} - {str(item['Descripcion'])[:30]}")
+                st.write(f"{item['Codigo']} - {str(item.get('Descripcion', ''))[:30]}")
             with col3:
                 st.write(f"${item['Precio_Unitario']:,.2f}")
             with col4:
@@ -693,11 +692,11 @@ if st.session_state.carrito:
 
         pdf.set_font("Arial", '', 7)
         for _, row in df_carrito.iterrows():
-            desc_corta = str(row['Descripcion'])[:28]
-            marca_corta = str(row['Marca'])[:12]
-            modelo_corta = str(row['Modelo'])[:15]
+            desc_corta = str(row.get('Descripcion', ''))[:28]
+            marca_corta = str(row.get('Marca', ''))[:12]
+            modelo_corta = str(row.get('Modelo', ''))[:15]
 
-            pdf.cell(15, 6, str(row['Codigo'])[:10], border=1)
+            pdf.cell(15, 6, str(row.get('Codigo', ''))[:10], border=1)
             pdf.cell(15, 6, marca_corta, border=1)
             pdf.cell(18, 6, modelo_corta, border=1)
             pdf.cell(30, 6, desc_corta, border=1)
