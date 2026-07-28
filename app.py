@@ -866,7 +866,7 @@ if st.session_state.carrito:
                 st.stop()
 
             # ==================================================================
-            # NUEVA GENERACIÓN DE PDF – ESTILO ERP MODERNO
+            # NUEVA GENERACIÓN DE PDF – ESTILO FACTURA MODERNA (REDISEÑO COMPLETO)
             # ==================================================================
 
             pdf = FPDF()
@@ -878,13 +878,14 @@ if st.session_state.carrito:
             PAGE_WIDTH = 210 - 30
             FONT_SIZE = 9
             FONT_SIZE_SMALL = 7
-            FONT_SIZE_TITLE = 18
+            FONT_SIZE_TITLE = 20
             FONT_SIZE_TOTAL = 14
             GRAY_TEXT = (100, 100, 100)
             DARK_GRAY = (40, 40, 40)
 
-            # Funciones de dibujo (con clean_text)
+            # Funciones de dibujo
             def draw_title():
+                # Título a la derecha
                 pdf.set_x(MARGIN_LEFT + PAGE_WIDTH - 80)
                 pdf.set_font("Arial", 'B', FONT_SIZE_TITLE)
                 pdf.set_text_color(0, 0, 0)
@@ -897,6 +898,7 @@ if st.session_state.carrito:
                 pdf.ln(4)
 
             def draw_client_block():
+                # Bloque "Bill To" a la izquierda
                 pdf.set_font("Arial", 'B', 10)
                 pdf.set_text_color(0, 0, 0)
                 pdf.cell(0, 6, clean_text("Cliente:"), ln=True)
@@ -922,6 +924,7 @@ if st.session_state.carrito:
                 pdf.ln(8)
 
             def draw_brand_header(marca, count):
+                # Título de la marca (sin color de fondo, solo texto)
                 pdf.set_font("Arial", 'B', 11)
                 pdf.set_text_color(0, 0, 0)
                 pdf.cell(0, 8, clean_text(f"{marca} ({count} productos)"), ln=True)
@@ -947,6 +950,7 @@ if st.session_state.carrito:
                 pdf.set_fill_color(255, 255, 255)
 
             def draw_product_row(row, es_einhell, widths):
+                # Datos principales
                 codigo = clean_text(str(row['Codigo']))[:12]
                 marca_text = clean_text(str(row['Marca']))[:12]
                 cant = str(int(row['Cantidad'])) if row['Cantidad'].is_integer() else f"{row['Cantidad']:.1f}"
@@ -957,6 +961,7 @@ if st.session_state.carrito:
                 neto = fmt_currency(row['Neto_Calculado'])
                 iva_monto = fmt_currency(row['Monto_IVA'])
 
+                # Línea 1: Datos financieros (negrita para Código y Modelo/Herramienta)
                 pdf.set_x(MARGIN_LEFT)
                 pdf.set_font("Arial", 'B', FONT_SIZE)
                 pdf.set_text_color(0, 0, 0)
@@ -989,6 +994,7 @@ if st.session_state.carrito:
                     pdf.cell(widths[9], 6, iva_monto, border=0, align='R')
                 pdf.ln()
 
+                # Línea 2: Descripción (cursiva, gris)
                 desc_text = clean_text(str(row.get('Descripcion', '')))
                 if row['Es_Oferta']:
                     desc_text = "OFERTA " + desc_text
@@ -1025,11 +1031,13 @@ if st.session_state.carrito:
                 pdf.set_text_color(0, 0, 0)
                 pdf.set_font("Arial", '', FONT_SIZE)
 
+                # Línea separadora gris
                 pdf.set_draw_color(220, 220, 220)
                 pdf.line(MARGIN_LEFT, pdf.get_y() + 1, MARGIN_LEFT + PAGE_WIDTH, pdf.get_y() + 1)
                 pdf.ln(4)
 
             def draw_subtotal_block(marca, bruto, descuento, neto, iva, total):
+                # Bloque de subtotal (sin fondo, solo texto alineado a la derecha)
                 pdf.set_draw_color(220, 220, 220)
                 pdf.line(MARGIN_LEFT, pdf.get_y(), MARGIN_LEFT + PAGE_WIDTH, pdf.get_y())
                 pdf.ln(2)
@@ -1047,6 +1055,7 @@ if st.session_state.carrito:
                 pdf.ln(2)
 
             def draw_final_summary(total_bruto, total_descuento, total_neto, total_iva, total_final, texto_descuentos):
+                # Bloque de totales alineado a la derecha
                 pdf.ln(6)
                 pdf.set_font("Arial", 'B', 10)
                 pdf.set_text_color(0, 0, 0)
@@ -1093,6 +1102,7 @@ if st.session_state.carrito:
                 pdf.line(x_start, pdf.get_y(), MARGIN_LEFT + PAGE_WIDTH, pdf.get_y())
                 pdf.ln(3)
 
+                # TOTAL FINAL con fondo oscuro
                 pdf.set_x(x_start)
                 pdf.set_fill_color(DARK_GRAY[0], DARK_GRAY[1], DARK_GRAY[2])
                 pdf.rect(x_start, pdf.get_y(), block_width, 10, 'F')
