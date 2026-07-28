@@ -33,7 +33,7 @@ def get_product_price_info(row):
     """
     Devuelve (precio_unitario, step, ayuda, precio_presentacion)
     - precio_unitario: precio por unidad suelta
-    - step: valor sugerido para el incremento (ej. cantidad por caja)
+    - step: siempre 1 (para permitir cantidades arbitrarias)
     - ayuda: texto informativo
     - precio_presentacion: precio por el lote completo (si aplica)
     """
@@ -47,14 +47,19 @@ def get_product_price_info(row):
         unidad_num = float(unidad)
         if unidad_num > 0:
             precio_unitario = precio_lista / unidad_num
-            try:
-                step = float(caja) if caja else 1.0
-            except:
-                step = 1.0
+            step = 1.0  # Permitir cualquier cantidad
+            # Texto de ayuda
             if caja:
-                ayuda = f"Sugerido: múltiplos de {step} (caja de {step} unidades)"
+                try:
+                    caja_num = float(caja)
+                    if caja_num > 0:
+                        ayuda = f"Precio unitario (sueltas): ${precio_unitario:.2f} | Caja de {caja_num} unidades (${precio_lista:,.2f})"
+                    else:
+                        ayuda = f"Precio unitario: ${precio_unitario:.2f}"
+                except:
+                    ayuda = f"Precio unitario: ${precio_unitario:.2f}"
             else:
-                ayuda = f"Precio por {unidad_num} unidades: ${precio_lista:,.2f}"
+                ayuda = f"Precio unitario: ${precio_unitario:.2f}"
             return precio_unitario, step, ayuda, precio_lista
     except:
         pass
@@ -65,12 +70,14 @@ def get_product_price_info(row):
         caja_num = float(caja) if caja else 0
         if caja_num > 0:
             precio_unitario = precio_lista / caja_num
-            step = caja_num  # Sugerir comprar cajas completas
+            step = 1.0  # Permitir cualquier cantidad
             # Texto de ayuda
             if embalaje.upper() == "GRANEL":
-                ayuda = f"Precio unitario (sueltas): ${precio_unitario:.2f} | Granel de {caja_num} unidades"
+                ayuda = f"Precio unitario: ${precio_unitario:.2f} | Granel de {caja_num} unidades (${precio_lista:,.2f})"
+            elif embalaje:
+                ayuda = f"Precio unitario: ${precio_unitario:.2f} | {embalaje} de {caja_num} unidades (${precio_lista:,.2f})"
             else:
-                ayuda = f"Precio unitario (sueltas): ${precio_unitario:.2f} | {embalaje} de {caja_num} unidades"
+                ayuda = f"Precio unitario: ${precio_unitario:.2f} | Lote de {caja_num} unidades (${precio_lista:,.2f})"
             return precio_unitario, step, ayuda, precio_lista
         else:
             # No hay cantidad por caja, asumimos precio unitario = precio de lista
@@ -484,8 +491,9 @@ if not df_filtrado.empty:
         else:
             precio_unitario_a_usar = precio_unitario
 
-        step_final = float(step_sugerido) if step_sugerido > 0 else 1.0
-        valor_inicial = float(step_sugerido) if step_sugerido > 0 else 1.0
+        # El step sugerido siempre será 1.0 (unidades sueltas)
+        step_final = 1.0
+        valor_inicial = 1.0
 
         cantidad = col_qty.number_input(
             "Cantidad:",
@@ -708,7 +716,7 @@ if st.session_state.carrito:
         pdf.cell(150, 6, "Subtotal Bruto (Sin Desc):", align='R')
         pdf.cell(40, 6, fmt_currency(total_bruto), align='R')
         pdf.ln()
-        pdf.cell(150, 6, f"Descuentos ({texto_descuentos}):", align='R')
+        pdf.cell(150, 6, f"Descuentos ({texto_descuentos})", align='R')
         pdf.cell(40, 6, fmt_currency(total_descuento), align='R')
         pdf.ln()
         pdf.cell(150, 6, "Neto:", align='R')
