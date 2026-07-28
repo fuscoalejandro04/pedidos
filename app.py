@@ -298,7 +298,6 @@ def standardize_product_columns(df, filename):
         if 'Marca' not in df.columns:
             df['Marca'] = 'Desconocida'
 
-    # Asegurar que las columnas requeridas existan
     required = ['Codigo', 'Descripcion', 'Modelo', 'Marca', 'Precio_Lista', 'IVA', 'Hoja_Origen', 'Herramienta', 'Color']
     for col in required:
         if col not in df.columns:
@@ -344,8 +343,9 @@ st.subheader("2. Catálogo de Productos")
 marcas_disponibles = sorted(df_productos['Marca'].dropna().unique())
 marca_filtro = st.selectbox("Filtrar por Línea / Marca:", options=["Todas"] + marcas_disponibles)
 
-# --- Configuración de filtros por marca (solo si las columnas existen y tienen datos) ---
+# --- Configuración de filtros por marca (definida aquí, después de df_productos) ---
 FILTROS_CONFIG = {}
+
 if 'Categoria_Generica' in df_productos.columns and df_productos['Categoria_Generica'].notna().any():
     FILTROS_CONFIG["Einhell"] = {
         "Categoria_Generica": {"label": "Categoría", "options": sorted(df_productos[df_productos['Marca'] == "Einhell"]['Categoria_Generica'].dropna().unique())},
