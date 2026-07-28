@@ -334,6 +334,32 @@ else:
 
 st.markdown("---")
 
+# ------------------------------------------------------------
+# CONSTRUCCIÓN DE FILTROS POR MARCA (después de cargar df_productos)
+# ------------------------------------------------------------
+def build_filtros_config(df):
+    config = {}
+    if 'Categoria_Generica' in df.columns and df['Categoria_Generica'].notna().any():
+        config["Einhell"] = {
+            "Categoria_Generica": {"label": "Categoría", "options": sorted(df[df['Marca'] == "Einhell"]['Categoria_Generica'].dropna().unique())},
+            "Tipo_Alimentacion": {"label": "Alimentación", "options": sorted(df[df['Marca'] == "Einhell"]['Tipo_Alimentacion'].dropna().unique())}
+        }
+    if 'Embalaje' in df.columns and df['Embalaje'].notna().any():
+        config["Fijaciones"] = {
+            "Embalaje": {"label": "Embalaje", "options": sorted(df[df['Marca'] == "Fijaciones"]['Embalaje'].dropna().unique())}
+        }
+    if 'Hoja_Origen' in df.columns and df['Hoja_Origen'].notna().any():
+        config["KWB"] = {
+            "Hoja_Origen": {"label": "Hoja de origen", "options": sorted(df[df['Marca'] == "KWB"]['Hoja_Origen'].dropna().unique())}
+        }
+    if 'Color' in df.columns and df['Color'].notna().any():
+        config["Penosil"] = {
+            "Color": {"label": "Color", "options": sorted(df[df['Marca'] == "Penosil"]['Color'].dropna().unique())}
+        }
+    return config
+
+FILTROS_CONFIG = build_filtros_config(df_productos)
+
 # ============================================================
 # 3. CATÁLOGO Y AGREGADO AL CARRITO (CON FILTROS DINÁMICOS POR MARCA)
 # ============================================================
@@ -342,27 +368,6 @@ st.subheader("2. Catálogo de Productos")
 # --- Filtro principal: Marca ---
 marcas_disponibles = sorted(df_productos['Marca'].dropna().unique())
 marca_filtro = st.selectbox("Filtrar por Línea / Marca:", options=["Todas"] + marcas_disponibles)
-
-# --- Configuración de filtros por marca (definida aquí, después de df_productos) ---
-FILTROS_CONFIG = {}
-
-if 'Categoria_Generica' in df_productos.columns and df_productos['Categoria_Generica'].notna().any():
-    FILTROS_CONFIG["Einhell"] = {
-        "Categoria_Generica": {"label": "Categoría", "options": sorted(df_productos[df_productos['Marca'] == "Einhell"]['Categoria_Generica'].dropna().unique())},
-        "Tipo_Alimentacion": {"label": "Alimentación", "options": sorted(df_productos[df_productos['Marca'] == "Einhell"]['Tipo_Alimentacion'].dropna().unique())}
-    }
-if 'Embalaje' in df_productos.columns and df_productos['Embalaje'].notna().any():
-    FILTROS_CONFIG["Fijaciones"] = {
-        "Embalaje": {"label": "Embalaje", "options": sorted(df_productos[df_productos['Marca'] == "Fijaciones"]['Embalaje'].dropna().unique())}
-    }
-if 'Hoja_Origen' in df_productos.columns and df_productos['Hoja_Origen'].notna().any():
-    FILTROS_CONFIG["KWB"] = {
-        "Hoja_Origen": {"label": "Hoja de origen", "options": sorted(df_productos[df_productos['Marca'] == "KWB"]['Hoja_Origen'].dropna().unique())}
-    }
-if 'Color' in df_productos.columns and df_productos['Color'].notna().any():
-    FILTROS_CONFIG["Penosil"] = {
-        "Color": {"label": "Color", "options": sorted(df_productos[df_productos['Marca'] == "Penosil"]['Color'].dropna().unique())}
-    }
 
 if marca_filtro == "Todas":
     filtros_adicionales = {}
