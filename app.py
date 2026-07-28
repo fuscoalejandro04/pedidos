@@ -860,7 +860,7 @@ if st.session_state.carrito:
                 st.stop()
 
             # ----------------------------------------------------------------------
-            # GENERACIÓN DE PDF – ESTILO PROFESIONAL CON 2 RENGLONES POR ARTÍCULO
+            # GENERACIÓN DE PDF – UNA SOLA FILA POR PRODUCTO
             # ----------------------------------------------------------------------
             pdf = FPDF()
             pdf.add_page()
@@ -881,7 +881,6 @@ if st.session_state.carrito:
             pdf.set_font("Arial", 'B', 11)
             pdf.set_text_color(0, 0, 0)
 
-            # Código de cliente
             codigo_cliente = cli_info.get('CODIGO') or cli_info.get('Código') or cli_info.get('Codigo')
             if codigo_cliente and pd.notna(codigo_cliente):
                 pdf.cell(0, 7, sanitize_text(f"Cliente: {cliente_seleccionado} (Código: {codigo_cliente})"), ln=True)
@@ -907,11 +906,11 @@ if st.session_state.carrito:
             pdf.cell(0, 6, sanitize_text(f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}"), ln=True)
             pdf.ln(8)
 
-            # ---- DEFINICIÓN DE ANCHOS DE COLUMNA (OPTIMIZADOS PARA A4) ----
+            # ---- DEFINICIÓN DE ANCHOS DE COLUMNA (UNA SOLA FILA) ----
             col_widths = {
                 'Codigo': 12,
                 'Marca': 12,
-                'Modelo': 16,   # Para Einhell se reemplazará por "Herramienta"
+                'Modelo': 16,
                 'Descripcion': 28,
                 'Cant': 8,
                 'P.Unit': 13,
@@ -921,7 +920,8 @@ if st.session_state.carrito:
                 'Neto': 14,
                 'IVA': 12,
             }
-            # Total = 150 mm (cabe en A4 con márgenes de 10 mm)
+            # Para Einhell: usaremos "Herramienta" en lugar de "Modelo"
+            # Las columnas extra (Emb., Caja, Unidad) se agregan solo si NO es Einhell
 
             # ---- RECORRER MARCAS Y GENERAR TABLA ----
             marcas_en_pedido = sorted(df_carrito['Marca'].unique())
@@ -941,7 +941,7 @@ if st.session_state.carrito:
                 pdf.set_text_color(0, 0, 0)
                 pdf.ln(4)
 
-                # ---- DETERMINAR SI ES EINHELL (para omitir columnas extra y usar "Herramienta") ----
+                # ---- DETERMINAR SI ES EINHELL ----
                 es_einhell = (marca == "Einhell")
 
                 # ---- ENCABEZADOS DE TABLA (color de marca) ----
@@ -951,7 +951,6 @@ if st.session_state.carrito:
                 pdf.set_x(10)
 
                 if es_einhell:
-                    # Para Einhell: la columna "Modelo" pasa a llamarse "Herramienta", y no hay columnas extra
                     headers = ["Codigo", "Marca", "Herramienta", "Descripcion", "Cant", "P.Unit", "IVA%", "Subtotal", "Desc.", "Neto", "IVA"]
                     widths = [
                         col_widths['Codigo'], col_widths['Marca'], col_widths['Modelo'],
@@ -960,11 +959,10 @@ if st.session_state.carrito:
                         col_widths['Neto'], col_widths['IVA']
                     ]
                 else:
-                    # Otras marcas: columnas de embalaje + "Modelo"
                     headers = ["Codigo", "Marca", "Modelo", "Descripcion", "Emb.", "Caja", "Unidad", "Cant", "P.Unit", "IVA%", "Subtotal", "Desc.", "Neto", "IVA"]
                     widths = [
                         col_widths['Codigo'], col_widths['Marca'], col_widths['Modelo'],
-                        col_widths['Descripcion'], 8, 8, 8,  # Emb, Caja, Unidad
+                        col_widths['Descripcion'], 8, 8, 8,
                         col_widths['Cant'], col_widths['P.Unit'], col_widths['IVA%'],
                         col_widths['Subtotal'], col_widths['Desc.'], col_widths['Neto'], col_widths['IVA']
                     ]
@@ -975,17 +973,16 @@ if st.session_state.carrito:
                 pdf.set_text_color(0, 0, 0)
                 pdf.set_fill_color(255, 255, 255)
 
-                # ---- FILAS DE PRODUCTOS (2 renglones por producto) ----
+                # ---- FILAS DE PRODUCTOS (UNA SOLA FILA POR PRODUCTO) ----
                 pdf.set_font("Arial", '', 6)
 
                 for _, row in subset.iterrows():
-                    # Preparar datos según marca
                     codigo = sanitize_text(str(row['Codigo'])[:10])
                     marca_text = sanitize_text(str(row['Marca'])[:10])
-                    # Para Einhell, usar "Herramienta" en lugar de "Modelo"
                     if es_einhell:
+                        # Usar "Herramienta" como modelo
                         modelo_text = sanitize_text(str(row.get('Herramienta', ''))[:16])
-                        # Descripción: mostrar herramienta + alimentación (si existe)
+                        # Descripción: usar herramienta + alimentación (si existe) en lugar de descripción larga
                         herramienta = str(row.get('Herramienta', ''))
                         alimentacion = str(row.get('Tipo_Alimentacion', ''))
                         if alimentacion and alimentacion != "No especificado":
@@ -1007,68 +1004,35 @@ if st.session_state.carrito:
                     neto = fmt_currency(row['Neto_Calculado'])
                     iva_monto = fmt_currency(row['Monto_IVA'])
 
-                    # Renglón 1: Código, Marca, Modelo/Herramienta, Descripción (+ extras si no es Einhell)
+                    # Dibujar una sola fila
                     pdf.set_x(10)
                     if es_einhell:
-                        pdf.cell(col_widths['Codigo'], 5, codigo, border='LTR', align='L')
-                        pdf.cell(col_widths['Marca'], 5, marca_text, border='LTR', align='L')
-                        pdf.cell(col_widths['Modelo'], 5, modelo_text, border='LTR', align='L')
-                        pdf.cell(col_widths['Descripcion'], 5, desc_text, border='LTR', align='L')
-                        # Rellenar el resto de celdas vacías para mantener el borde
-                        pdf.cell(col_widths['Cant'], 5, "", border='LTR', align='L')
-                        pdf.cell(col_widths['P.Unit'], 5, "", border='LTR', align='L')
-                        pdf.cell(col_widths['IVA%'], 5, "", border='LTR', align='L')
-                        pdf.cell(col_widths['Subtotal'], 5, "", border='LTR', align='L')
-                        pdf.cell(col_widths['Desc.'], 5, "", border='LTR', align='L')
-                        pdf.cell(col_widths['Neto'], 5, "", border='LTR', align='L')
-                        pdf.cell(col_widths['IVA'], 5, "", border='LTR', align='L')
+                        pdf.cell(col_widths['Codigo'], 6, codigo, border=1, align='L')
+                        pdf.cell(col_widths['Marca'], 6, marca_text, border=1, align='L')
+                        pdf.cell(col_widths['Modelo'], 6, modelo_text, border=1, align='L')
+                        pdf.cell(col_widths['Descripcion'], 6, desc_text, border=1, align='L')
+                        pdf.cell(col_widths['Cant'], 6, cant, border=1, align='C')
+                        pdf.cell(col_widths['P.Unit'], 6, p_unit, border=1, align='R')
+                        pdf.cell(col_widths['IVA%'], 6, iva_text, border=1, align='C')
+                        pdf.cell(col_widths['Subtotal'], 6, subtotal, border=1, align='R')
+                        pdf.cell(col_widths['Desc.'], 6, descuento, border=1, align='R')
+                        pdf.cell(col_widths['Neto'], 6, neto, border=1, align='R')
+                        pdf.cell(col_widths['IVA'], 6, iva_monto, border=1, align='R')
                     else:
-                        pdf.cell(col_widths['Codigo'], 5, codigo, border='LTR', align='L')
-                        pdf.cell(col_widths['Marca'], 5, marca_text, border='LTR', align='L')
-                        pdf.cell(col_widths['Modelo'], 5, modelo_text, border='LTR', align='L')
-                        pdf.cell(col_widths['Descripcion'], 5, desc_text, border='LTR', align='L')
-                        pdf.cell(8, 5, sanitize_text(str(row.get('Embalaje', ''))[:5]), border='LTR', align='L')
-                        pdf.cell(8, 5, sanitize_text(str(row.get('CantidadPorCaja', ''))[:5]), border='LTR', align='L')
-                        pdf.cell(8, 5, sanitize_text(str(row.get('UnidadPrecio', ''))[:5]), border='LTR', align='L')
-                        # Rellenar el resto
-                        pdf.cell(col_widths['Cant'], 5, "", border='LTR', align='L')
-                        pdf.cell(col_widths['P.Unit'], 5, "", border='LTR', align='L')
-                        pdf.cell(col_widths['IVA%'], 5, "", border='LTR', align='L')
-                        pdf.cell(col_widths['Subtotal'], 5, "", border='LTR', align='L')
-                        pdf.cell(col_widths['Desc.'], 5, "", border='LTR', align='L')
-                        pdf.cell(col_widths['Neto'], 5, "", border='LTR', align='L')
-                        pdf.cell(col_widths['IVA'], 5, "", border='LTR', align='L')
-                    pdf.ln()
-
-                    # Renglón 2: Cant, P.Unit, IVA%, Subtotal, Desc., Neto, IVA
-                    pdf.set_x(10)
-                    if es_einhell:
-                        pdf.cell(col_widths['Codigo'], 5, "", border='LBR', align='L')
-                        pdf.cell(col_widths['Marca'], 5, "", border='LBR', align='L')
-                        pdf.cell(col_widths['Modelo'], 5, "", border='LBR', align='L')
-                        pdf.cell(col_widths['Descripcion'], 5, "", border='LBR', align='L')
-                        pdf.cell(col_widths['Cant'], 5, cant, border='LBR', align='C')
-                        pdf.cell(col_widths['P.Unit'], 5, p_unit, border='LBR', align='R')
-                        pdf.cell(col_widths['IVA%'], 5, iva_text, border='LBR', align='C')
-                        pdf.cell(col_widths['Subtotal'], 5, subtotal, border='LBR', align='R')
-                        pdf.cell(col_widths['Desc.'], 5, descuento, border='LBR', align='R')
-                        pdf.cell(col_widths['Neto'], 5, neto, border='LBR', align='R')
-                        pdf.cell(col_widths['IVA'], 5, iva_monto, border='LBR', align='R')
-                    else:
-                        pdf.cell(col_widths['Codigo'], 5, "", border='LBR', align='L')
-                        pdf.cell(col_widths['Marca'], 5, "", border='LBR', align='L')
-                        pdf.cell(col_widths['Modelo'], 5, "", border='LBR', align='L')
-                        pdf.cell(col_widths['Descripcion'], 5, "", border='LBR', align='L')
-                        pdf.cell(8, 5, "", border='LBR', align='L')
-                        pdf.cell(8, 5, "", border='LBR', align='L')
-                        pdf.cell(8, 5, "", border='LBR', align='L')
-                        pdf.cell(col_widths['Cant'], 5, cant, border='LBR', align='C')
-                        pdf.cell(col_widths['P.Unit'], 5, p_unit, border='LBR', align='R')
-                        pdf.cell(col_widths['IVA%'], 5, iva_text, border='LBR', align='C')
-                        pdf.cell(col_widths['Subtotal'], 5, subtotal, border='LBR', align='R')
-                        pdf.cell(col_widths['Desc.'], 5, descuento, border='LBR', align='R')
-                        pdf.cell(col_widths['Neto'], 5, neto, border='LBR', align='R')
-                        pdf.cell(col_widths['IVA'], 5, iva_monto, border='LBR', align='R')
+                        pdf.cell(col_widths['Codigo'], 6, codigo, border=1, align='L')
+                        pdf.cell(col_widths['Marca'], 6, marca_text, border=1, align='L')
+                        pdf.cell(col_widths['Modelo'], 6, modelo_text, border=1, align='L')
+                        pdf.cell(col_widths['Descripcion'], 6, desc_text, border=1, align='L')
+                        pdf.cell(8, 6, sanitize_text(str(row.get('Embalaje', ''))[:5]), border=1, align='L')
+                        pdf.cell(8, 6, sanitize_text(str(row.get('CantidadPorCaja', ''))[:5]), border=1, align='L')
+                        pdf.cell(8, 6, sanitize_text(str(row.get('UnidadPrecio', ''))[:5]), border=1, align='L')
+                        pdf.cell(col_widths['Cant'], 6, cant, border=1, align='C')
+                        pdf.cell(col_widths['P.Unit'], 6, p_unit, border=1, align='R')
+                        pdf.cell(col_widths['IVA%'], 6, iva_text, border=1, align='C')
+                        pdf.cell(col_widths['Subtotal'], 6, subtotal, border=1, align='R')
+                        pdf.cell(col_widths['Desc.'], 6, descuento, border=1, align='R')
+                        pdf.cell(col_widths['Neto'], 6, neto, border=1, align='R')
+                        pdf.cell(col_widths['IVA'], 6, iva_monto, border=1, align='R')
                     pdf.ln()
 
                 # ---- SUBTOTAL DE MARCA ----
@@ -1096,7 +1060,6 @@ if st.session_state.carrito:
             pdf.cell(0, 7, sanitize_text(f"Descuentos aplicados: {texto_descuentos}"), ln=True)
             pdf.ln(2)
 
-            # Tabla de totales
             pdf.set_font("Arial", 'B', 10)
             pdf.set_fill_color(240, 240, 240)
             pdf.set_x(10)
@@ -1123,7 +1086,6 @@ if st.session_state.carrito:
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
             pdf.ln(2)
 
-            # TOTAL FINAL
             pdf.set_font("Arial", 'B', 14)
             pdf.set_text_color(0, 0, 0)
             pdf.cell(100, 10, "TOTAL FINAL:", border=0, align='R')
