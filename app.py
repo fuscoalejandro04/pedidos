@@ -236,7 +236,7 @@ def load_databases():
     except FileNotFoundError:
         st.error("No se encontró el archivo DB_Clientes_Limpia.xlsx. Por favor, asegúrate de que exista.")
         st.stop()
-        return None, None  # Esto nunca se ejecuta por el st.stop()
+        return None, None
 
     product_files = [
         "KWB_Limpia.xlsx",
@@ -866,7 +866,7 @@ if st.session_state.carrito:
                 st.stop()
 
             # ==================================================================
-            # GENERACIÓN DE PDF – ESTILO ERP MODERNO (CORREGIDO)
+            # NUEVA GENERACIÓN DE PDF – ESTILO ERP MODERNO
             # ==================================================================
 
             pdf = FPDF()
@@ -1123,7 +1123,7 @@ if st.session_state.carrito:
                     pdf.ln(4)
                 pdf.set_text_color(0, 0, 0)
 
-            # ---- INICIO ----
+            # ---- INICIO DE GENERACIÓN ----
             draw_title()
             draw_separator_line()
             draw_client_block()
