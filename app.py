@@ -316,29 +316,15 @@ except Exception as e:
     st.stop()
 
 # ------------------------------------------------------------
-# 2. SELECCIÓN DE CLIENTE
-# ------------------------------------------------------------
-st.subheader("1. Selección de Cliente")
-if 'DENOMINACÍON LEGAL' in df_clientes.columns:
-    lista_clientes = sorted(df_clientes['DENOMINACÍON LEGAL'].dropna().unique())
-    cliente_seleccionado = st.selectbox("Buscar / Seleccionar Cliente:", options=lista_clientes)
-    cli_info = df_clientes[df_clientes['DENOMINACÍON LEGAL'] == cliente_seleccionado].iloc[0]
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("CUIT", str(cli_info.get('C.U.I.T.', '-')))
-    col2.metric("Localidad", str(cli_info.get('LOCALIDAD', '-')))
-    col3.metric("Condición de Pago", str(cli_info.get('FORMA DE PAGO', '-')))
-    col4.metric("Vendedor", str(cli_info.get('NOMB.VENDEDOR', '-')))
-else:
-    st.warning("El archivo de clientes no tiene la columna 'DENOMINACÍON LEGAL'. Verifica el formato.")
-    cliente_seleccionado = None
-
-st.markdown("---")
-
-# ------------------------------------------------------------
-# CONSTRUCCIÓN DE FILTROS POR MARCA (después de cargar df_productos)
+# CONSTRUCCIÓN DE FILTROS POR MARCA (con verificaciones)
 # ------------------------------------------------------------
 def build_filtros_config(df):
     config = {}
+    # Verificar que 'Marca' existe en el DataFrame
+    if 'Marca' not in df.columns:
+        return config
+
+    # Solo construir filtros si las columnas requeridas existen y tienen datos
     if 'Categoria_Generica' in df.columns and df['Categoria_Generica'].notna().any():
         config["Einhell"] = {
             "Categoria_Generica": {"label": "Categoría", "options": sorted(df[df['Marca'] == "Einhell"]['Categoria_Generica'].dropna().unique())},
@@ -359,6 +345,25 @@ def build_filtros_config(df):
     return config
 
 FILTROS_CONFIG = build_filtros_config(df_productos)
+
+# ------------------------------------------------------------
+# 2. SELECCIÓN DE CLIENTE
+# ------------------------------------------------------------
+st.subheader("1. Selección de Cliente")
+if 'DENOMINACÍON LEGAL' in df_clientes.columns:
+    lista_clientes = sorted(df_clientes['DENOMINACÍON LEGAL'].dropna().unique())
+    cliente_seleccionado = st.selectbox("Buscar / Seleccionar Cliente:", options=lista_clientes)
+    cli_info = df_clientes[df_clientes['DENOMINACÍON LEGAL'] == cliente_seleccionado].iloc[0]
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("CUIT", str(cli_info.get('C.U.I.T.', '-')))
+    col2.metric("Localidad", str(cli_info.get('LOCALIDAD', '-')))
+    col3.metric("Condición de Pago", str(cli_info.get('FORMA DE PAGO', '-')))
+    col4.metric("Vendedor", str(cli_info.get('NOMB.VENDEDOR', '-')))
+else:
+    st.warning("El archivo de clientes no tiene la columna 'DENOMINACÍON LEGAL'. Verifica el formato.")
+    cliente_seleccionado = None
+
+st.markdown("---")
 
 # ============================================================
 # 3. CATÁLOGO Y AGREGADO AL CARRITO (CON FILTROS DINÁMICOS POR MARCA)
