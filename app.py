@@ -33,9 +33,6 @@ def fmt_currency(val):
 # FUNCIÓN PARA OBTENER INFORMACIÓN DE PRECIO Y PRESENTACIÓN
 # ------------------------------------------------------------
 def get_product_info(row):
-    """
-    Devuelve un diccionario con toda la información de precio y presentación.
-    """
     precio_lista = row['Precio_Lista']
     unidad = str(row.get('UnidadPrecio', '')).strip() if pd.notna(row.get('UnidadPrecio')) else ''
     caja = str(row.get('CantidadPorCaja', '')).strip() if pd.notna(row.get('CantidadPorCaja')) else ''
@@ -54,7 +51,6 @@ def get_product_info(row):
         'precio_por_presentacion': precio_lista
     }
 
-    # Intentar convertir unidad a numérico (ej. "100" -> 100.0)
     try:
         unidad_num = float(unidad)
         if unidad_num > 0:
@@ -90,7 +86,6 @@ def get_product_info(row):
     except:
         pass
 
-    # UnidadPrecio NO es numérico (ej. "GRANEL", "BOLSA", "JARRA", etc.)
     try:
         caja_num = float(caja) if caja else 0
         if caja_num > 0:
@@ -255,28 +250,22 @@ def standardize_product_columns(df, filename):
     if 'Herramienta' not in df.columns:
         df['Herramienta'] = None
 
+    # Asegurar que las columnas extra existan para todos los archivos
+    for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio', 'Color']:
+        if extra not in df.columns:
+            df[extra] = None
+
     if "KWB" in filename:
         df = df.rename(columns={'Nombre': 'Modelo'})
         for col in ['Codigo', 'Descripcion', 'Modelo', 'Marca', 'Precio_Lista', 'IVA', 'Hoja_Origen']:
             if col not in df.columns:
                 df[col] = None
-        for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio']:
-            if extra not in df.columns:
-                df[extra] = None
-        # Asegurar que 'Color' exista
-        if 'Color' not in df.columns:
-            df['Color'] = None
 
     elif "Einhell" in filename:
         if 'Hoja_Origen' not in df.columns:
             df['Hoja_Origen'] = 'Einhell'
         if 'Marca' not in df.columns:
             df['Marca'] = 'Einhell'
-        for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio']:
-            if extra not in df.columns:
-                df[extra] = None
-        if 'Color' not in df.columns:
-            df['Color'] = None
 
     elif "Fijaciones" in filename:
         df = df.rename(columns={'PrecioLista': 'Precio_Lista'})
@@ -285,11 +274,6 @@ def standardize_product_columns(df, filename):
             df['Marca'] = 'Fijaciones'
         if 'Hoja_Origen' not in df.columns:
             df['Hoja_Origen'] = 'Fijaciones'
-        for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio']:
-            if extra not in df.columns:
-                df[extra] = None
-        if 'Color' not in df.columns:
-            df['Color'] = None
 
     elif "Penosil" in filename:
         df = df.rename(columns={
@@ -301,11 +285,6 @@ def standardize_product_columns(df, filename):
             df['Marca'] = 'Penosil'
         if 'Hoja_Origen' not in df.columns:
             df['Hoja_Origen'] = 'Penosil'
-        for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio']:
-            if extra not in df.columns:
-                df[extra] = None
-        if 'Color' not in df.columns:
-            df['Color'] = None
 
     else:
         if 'PrecioLista' in df.columns:
@@ -318,12 +297,8 @@ def standardize_product_columns(df, filename):
             df['Hoja_Origen'] = 'Desconocido'
         if 'Marca' not in df.columns:
             df['Marca'] = 'Desconocida'
-        for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio']:
-            if extra not in df.columns:
-                df[extra] = None
-        if 'Color' not in df.columns:
-            df['Color'] = None
 
+    # Asegurar que las columnas requeridas existan
     required = ['Codigo', 'Descripcion', 'Modelo', 'Marca', 'Precio_Lista', 'IVA', 'Hoja_Origen', 'Herramienta', 'Color']
     for col in required:
         if col not in df.columns:
@@ -369,22 +344,25 @@ st.subheader("2. Catálogo de Productos")
 marcas_disponibles = sorted(df_productos['Marca'].dropna().unique())
 marca_filtro = st.selectbox("Filtrar por Línea / Marca:", options=["Todas"] + marcas_disponibles)
 
-# --- Determinar qué filtros adicionales mostrar según marca ---
-FILTROS_CONFIG = {
-    "Einhell": {
+# --- Configuración de filtros por marca (solo si las columnas existen y tienen datos) ---
+FILTROS_CONFIG = {}
+if 'Categoria_Generica' in df_productos.columns and df_productos['Categoria_Generica'].notna().any():
+    FILTROS_CONFIG["Einhell"] = {
         "Categoria_Generica": {"label": "Categoría", "options": sorted(df_productos[df_productos['Marca'] == "Einhell"]['Categoria_Generica'].dropna().unique())},
         "Tipo_Alimentacion": {"label": "Alimentación", "options": sorted(df_productos[df_productos['Marca'] == "Einhell"]['Tipo_Alimentacion'].dropna().unique())}
-    },
-    "Fijaciones": {
+    }
+if 'Embalaje' in df_productos.columns and df_productos['Embalaje'].notna().any():
+    FILTROS_CONFIG["Fijaciones"] = {
         "Embalaje": {"label": "Embalaje", "options": sorted(df_productos[df_productos['Marca'] == "Fijaciones"]['Embalaje'].dropna().unique())}
-    },
-    "KWB": {
+    }
+if 'Hoja_Origen' in df_productos.columns and df_productos['Hoja_Origen'].notna().any():
+    FILTROS_CONFIG["KWB"] = {
         "Hoja_Origen": {"label": "Hoja de origen", "options": sorted(df_productos[df_productos['Marca'] == "KWB"]['Hoja_Origen'].dropna().unique())}
-    },
-    "Penosil": {
+    }
+if 'Color' in df_productos.columns and df_productos['Color'].notna().any():
+    FILTROS_CONFIG["Penosil"] = {
         "Color": {"label": "Color", "options": sorted(df_productos[df_productos['Marca'] == "Penosil"]['Color'].dropna().unique())}
     }
-}
 
 if marca_filtro == "Todas":
     filtros_adicionales = {}
