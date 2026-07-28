@@ -718,7 +718,7 @@ else:
 st.markdown("---")
 
 # ============================================================
-# 4. RESUMEN DEL PEDIDO
+# 4. RESUMEN DEL PEDIDO Y GENERACIÓN DE PDF
 # ============================================================
 st.subheader("3. Resumen del Pedido")
 
@@ -866,7 +866,7 @@ if st.session_state.carrito:
                 st.stop()
 
             # ==================================================================
-            # NUEVA GENERACIÓN DE PDF – ESTILO FACTURA MODERNA (REDISEÑO COMPLETO)
+            # GENERACIÓN DE PDF – ESTILO FACTURA MODERNA
             # ==================================================================
 
             pdf = FPDF()
@@ -885,7 +885,6 @@ if st.session_state.carrito:
 
             # Funciones de dibujo
             def draw_title():
-                # Título a la derecha
                 pdf.set_x(MARGIN_LEFT + PAGE_WIDTH - 80)
                 pdf.set_font("Arial", 'B', FONT_SIZE_TITLE)
                 pdf.set_text_color(0, 0, 0)
@@ -898,7 +897,6 @@ if st.session_state.carrito:
                 pdf.ln(4)
 
             def draw_client_block():
-                # Bloque "Bill To" a la izquierda
                 pdf.set_font("Arial", 'B', 10)
                 pdf.set_text_color(0, 0, 0)
                 pdf.cell(0, 6, clean_text("Cliente:"), ln=True)
@@ -924,7 +922,6 @@ if st.session_state.carrito:
                 pdf.ln(8)
 
             def draw_brand_header(marca, count):
-                # Título de la marca (sin color de fondo, solo texto)
                 pdf.set_font("Arial", 'B', 11)
                 pdf.set_text_color(0, 0, 0)
                 pdf.cell(0, 8, clean_text(f"{marca} ({count} productos)"), ln=True)
@@ -950,7 +947,6 @@ if st.session_state.carrito:
                 pdf.set_fill_color(255, 255, 255)
 
             def draw_product_row(row, es_einhell, widths):
-                # Datos principales
                 codigo = clean_text(str(row['Codigo']))[:12]
                 marca_text = clean_text(str(row['Marca']))[:12]
                 cant = str(int(row['Cantidad'])) if row['Cantidad'].is_integer() else f"{row['Cantidad']:.1f}"
@@ -961,7 +957,7 @@ if st.session_state.carrito:
                 neto = fmt_currency(row['Neto_Calculado'])
                 iva_monto = fmt_currency(row['Monto_IVA'])
 
-                # Línea 1: Datos financieros (negrita para Código y Modelo/Herramienta)
+                # Línea 1: Datos financieros (negrita)
                 pdf.set_x(MARGIN_LEFT)
                 pdf.set_font("Arial", 'B', FONT_SIZE)
                 pdf.set_text_color(0, 0, 0)
@@ -1031,13 +1027,12 @@ if st.session_state.carrito:
                 pdf.set_text_color(0, 0, 0)
                 pdf.set_font("Arial", '', FONT_SIZE)
 
-                # Línea separadora gris
+                # Línea separadora
                 pdf.set_draw_color(220, 220, 220)
                 pdf.line(MARGIN_LEFT, pdf.get_y() + 1, MARGIN_LEFT + PAGE_WIDTH, pdf.get_y() + 1)
                 pdf.ln(4)
 
             def draw_subtotal_block(marca, bruto, descuento, neto, iva, total):
-                # Bloque de subtotal (sin fondo, solo texto alineado a la derecha)
                 pdf.set_draw_color(220, 220, 220)
                 pdf.line(MARGIN_LEFT, pdf.get_y(), MARGIN_LEFT + PAGE_WIDTH, pdf.get_y())
                 pdf.ln(2)
@@ -1055,7 +1050,6 @@ if st.session_state.carrito:
                 pdf.ln(2)
 
             def draw_final_summary(total_bruto, total_descuento, total_neto, total_iva, total_final, texto_descuentos):
-                # Bloque de totales alineado a la derecha
                 pdf.ln(6)
                 pdf.set_font("Arial", 'B', 10)
                 pdf.set_text_color(0, 0, 0)
@@ -1133,7 +1127,7 @@ if st.session_state.carrito:
                     pdf.ln(4)
                 pdf.set_text_color(0, 0, 0)
 
-            # ---- INICIO DE GENERACIÓN ----
+            # ---- INICIO ----
             draw_title()
             draw_separator_line()
             draw_client_block()
