@@ -30,21 +30,24 @@ def fmt_currency(val):
     return f"${val:,.2f}"
 
 def format_iva(iva_val):
-    """Devuelve un string legible del IVA (ej. '21%' o '10.5%')"""
     if pd.isna(iva_val) or iva_val == 0:
         return "0%"
     return f"{iva_val * 100:.1f}%"
 
 def iva_badge(iva_val):
-    """Devuelve un badge HTML con el color según el IVA"""
     pct = format_iva(iva_val)
     if iva_val == 0.21:
-        color = "#28a745"  # verde
+        color = "#28a745"
     elif iva_val == 0.105:
-        color = "#007bff"  # azul
+        color = "#007bff"
     else:
-        color = "#6c757d"  # gris
-    return f'<span style="background-color:{color}; color:white; padding:2px 6px; border-radius:12px; font-size:12px; font-weight:bold;">{pct}</span>'
+        color = "#6c757d"
+    return f'<span style="background-color:{color}; color:white; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:bold;">{pct}</span>'
+
+def discount_badge(percentage):
+    if percentage > 0:
+        return f'<span style="background-color:#dc3545; color:white; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:bold;">-{percentage:.1f}%</span>'
+    return ""
 
 # ------------------------------------------------------------
 # FUNCIÓN PARA OBTENER INFORMACIÓN DE PRECIO Y PRESENTACIÓN
@@ -404,7 +407,7 @@ else:
 st.markdown("---")
 
 # ============================================================
-# 3. CATÁLOGO Y AGREGADO AL CARRITO (CON FILTROS DINÁMICOS Y VISUALIZACIÓN MEJORADA)
+# 3. CATÁLOGO Y AGREGADO AL CARRITO
 # ============================================================
 st.subheader("2. Catálogo de Productos")
 
@@ -495,18 +498,13 @@ if busqueda:
 st.markdown("##### Agregar al Pedido")
 
 if not df_filtrado.empty:
-    # --- Crear columna de visualización mejorada ---
     def format_display(row):
         precio = row['Precio_Oferta'] if row['Es_Oferta'] else row['Precio_Lista']
         etiqueta = "🔥 OFERTA " if row['Es_Oferta'] else ""
-        # Mostrar herramienta si existe (Einhell)
         herramienta = str(row.get('Herramienta', ''))[:20] if pd.notna(row.get('Herramienta')) else ''
         iva_str = format_iva(row['IVA'])
-        # Badge de IVA (solo para el dropdown usamos texto plano con emoji)
         iva_icon = "🔵" if row['IVA'] == 0.105 else "🟢" if row['IVA'] == 0.21 else "⚪"
-        # Mostrar descripción corta
         desc = str(row['Descripcion'])[:25]
-        # Construir línea
         parts = [f"{row['Codigo']}", f"{row['Marca']}"]
         if herramienta:
             parts.append(f"[{herramienta}]")
@@ -517,7 +515,6 @@ if not df_filtrado.empty:
 
     df_filtrado['Display'] = df_filtrado.apply(format_display, axis=1)
 
-    # --- Agrupar presentaciones ---
     df_filtrado['Codigo_Base'] = df_filtrado['Codigo'].astype(str).apply(lambda x: re.sub(r'[^0-9]', '', x))
     df_filtrado['Clave_Producto'] = df_filtrado['Codigo_Base'] + '_' + df_filtrado['Marca']
 
@@ -562,10 +559,7 @@ if not df_filtrado.empty:
             if pd.notna(prod_data.get('Tipo_Alimentacion')):
                 col_det1.markdown(f"**Alimentación:** {prod_data['Tipo_Alimentacion']}")
             col_det2.markdown(f"**Descripción:** {prod_data['Descripcion']}")
-
-            # IVA con badge
-            iva_badge_html = iva_badge(prod_data['IVA'])
-            col_det2.markdown(f"**IVA:** {iva_badge_html}", unsafe_allow_html=True)
+            col_det2.markdown(f"**IVA:** {iva_badge(prod_data['IVA'])}", unsafe_allow_html=True)
 
             extra_info = []
             if pd.notna(prod_data.get('Embalaje')):
@@ -646,7 +640,7 @@ if not df_filtrado.empty:
                 if item_existente is not None:
                     st.session_state.carrito[item_existente]['Cantidad'] += cantidad
                     st.session_state.carrito[item_existente]['Subtotal_Bruto'] = st.session_state.carrito[item_existente]['Precio_Unitario'] * st.session_state.carrito[item_existente]['Cantidad']
-                    st.success(f"¡Cantidad actualizada! {cantidad} unidades más de {prod_data['Codigo']} (total: {st.session_state.carrito[item_existente]['Cantidad']})")
+                    st.success(f"¡Cantidad actualizada! +{cantidad} unidades (total: {st.session_state.carrito[item_existente]['Cantidad']})")
                 else:
                     st.session_state.carrito.append({
                         "Codigo": str(prod_data['Codigo']),
@@ -680,12 +674,13 @@ else:
 
 st.markdown("---")
 
-# ------------------------------------------------------------
-# 4. RESUMEN DEL PEDIDO (CARRITO EDITABLE Y CONSOLIDADO) CON IVA VISIBLE
-# ------------------------------------------------------------
+# ============================================================
+# 4. RESUMEN DEL PEDIDO MEJORADO (CON AGRUPACIÓN POR MARCA Y DETALLE COMPLETO)
+# ============================================================
 st.subheader("3. Resumen del Pedido")
 
 if st.session_state.carrito:
+    # --- Funciones de ayuda para el resumen ---
     def update_carrito(index, new_cantidad=None):
         if new_cantidad is not None:
             if new_cantidad <= 0:
@@ -704,59 +699,21 @@ if st.session_state.carrito:
             st.session_state.carrito.pop(index)
         st.rerun()
 
-    st.markdown("#### Productos en el carrito")
-    if st.session_state.carrito:
-        for i, item in enumerate(st.session_state.carrito):
-            col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([0.8, 2, 0.8, 0.8, 0.8, 1.2, 0.8, 0.8])
-            with col1:
-                st.write(f"**{i+1}**")
-            with col2:
-                st.write(f"**{item['Codigo']}** - {str(item.get('Descripcion', ''))[:25]}")
-                presentacion = item.get('Presentacion_Text', '')
-                if presentacion:
-                    st.caption(presentacion)
-                emb = item.get('Embalaje', '')
-                if emb and emb not in presentacion:
-                    st.caption(f"Emb.: {emb}")
-            with col3:
-                st.write(f"{fmt_currency(item['Precio_Unitario'])}")
-            with col4:
-                step = item.get('Step', 1)
-                new_qty = st.number_input(
-                    "Cant.",
-                    min_value=0,
-                    value=int(item['Cantidad']),
-                    step=int(step),
-                    key=f"qty_{i}",
-                    label_visibility="collapsed"
-                )
-                if new_qty != item['Cantidad']:
-                    update_carrito(i, new_qty)
-            with col5:
-                st.write(f"{fmt_currency(item['Subtotal_Bruto'])}")
-            with col6:
-                # Mostrar IVA del producto
-                iva_str = format_iva(item['IVA'])
-                st.caption(f"IVA: {iva_str}")
-            with col7:
-                if st.button("🗑️", key=f"del_{i}", help="Eliminar producto"):
-                    update_carrito(i, None)
-            with col8:
-                tipo = item.get('Tipo_Cantidad', 'unidades')
-                if tipo == 'lotes':
-                    qty_lote = item.get('Cantidad_Por_Lote', 1)
-                    st.caption(f"Lote: {qty_lote}")
-                else:
-                    if step > 1:
-                        st.caption(f"Caja: {step}")
-            st.markdown("---")
+    def is_discount_applicable(row):
+        if row['Es_Oferta']:
+            return False
+        if row.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(row['Hoja_Origen']).upper():
+            return False
+        return True
 
-        if st.button("🗑️ Vaciar Carrito completo"):
-            st.session_state.carrito = []
-            st.rerun()
+    def calcular_neto(row, multiplicador):
+        if is_discount_applicable(row):
+            return row['Subtotal_Bruto'] * multiplicador
+        return row['Subtotal_Bruto']
 
+    # --- Obtener descuentos ---
     st.markdown("#### Bonificaciones y Cierre")
-    col_desc1, col_desc2, col_desc3, col_totales = st.columns([1, 1, 1, 2])
+    col_desc1, col_desc2, col_desc3, _ = st.columns([1, 1, 1, 2])
 
     desc_gen = col_desc1.number_input("Desc. General (%)", min_value=0.0, max_value=100.0, value=30.0, step=1.0)
     desc_ad1 = col_desc2.number_input("Desc. Adicional 1 (%)", min_value=0.0, max_value=100.0, value=0.0, step=1.0)
@@ -766,148 +723,219 @@ if st.session_state.carrito:
     descuentos_usados = [f"-{d}%" for d in [desc_gen, desc_ad1, desc_ad2] if d > 0]
     texto_descuentos = " ".join(descuentos_usados) if descuentos_usados else "Sin bonificación"
 
+    # --- Crear DataFrame del carrito ---
     df_carrito = pd.DataFrame(st.session_state.carrito)
 
-    def is_discount_applicable(row):
-        if row['Es_Oferta']:
-            return False
-        if row.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(row['Hoja_Origen']).upper():
-            return False
-        return True
-
-    def calcular_neto(row):
-        if is_discount_applicable(row):
-            neto = row['Subtotal_Bruto'] * multiplicador_desc
-        else:
-            neto = row['Subtotal_Bruto']
-        return neto
-
-    df_carrito['Neto_Calculado'] = df_carrito.apply(calcular_neto, axis=1)
+    # Calcular neto y descuento por producto
+    df_carrito['Neto_Calculado'] = df_carrito.apply(lambda row: calcular_neto(row, multiplicador_desc), axis=1)
     df_carrito['Monto_Descuento'] = df_carrito['Subtotal_Bruto'] - df_carrito['Neto_Calculado']
     df_carrito['Monto_IVA'] = df_carrito['Neto_Calculado'] * df_carrito['IVA']
 
+    # --- Calcular totales generales ---
     total_bruto = df_carrito['Subtotal_Bruto'].sum()
     total_neto = df_carrito['Neto_Calculado'].sum()
     total_iva = df_carrito['Monto_IVA'].sum()
     total_final = total_neto + total_iva
     total_descuento = total_bruto - total_neto
 
-    col_totales.metric("Subtotal Bruto", fmt_currency(total_bruto))
-    col_totales.metric(f"Descuentos ({texto_descuentos})", fmt_currency(total_descuento))
-    col_totales.metric("Neto (con descuentos)", fmt_currency(total_neto))
-    col_totales.metric("IVA Total", fmt_currency(total_iva))
-    col_totales.metric("Total Final (Inc. IVA)", fmt_currency(total_final))
-
-    with st.expander("📊 Detalle de descuentos por producto"):
-        detalle = df_carrito[['Codigo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'IVA', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado', 'Monto_IVA']].copy()
-        detalle['IVA'] = detalle['IVA'].apply(format_iva)
-        detalle['Monto_Descuento'] = detalle['Monto_Descuento'].apply(fmt_currency)
-        detalle['Neto_Calculado'] = detalle['Neto_Calculado'].apply(fmt_currency)
-        detalle['Subtotal_Bruto'] = detalle['Subtotal_Bruto'].apply(fmt_currency)
-        detalle['Monto_IVA'] = detalle['Monto_IVA'].apply(fmt_currency)
-        st.dataframe(detalle, use_container_width=True)
+    # --- Resumen General (KPI Cards) ---
+    st.markdown("#### 📊 Resumen General")
+    col_kpi1, col_kpi2, col_kpi3, col_kpi4, col_kpi5 = st.columns(5)
+    col_kpi1.metric("Subtotal Bruto", fmt_currency(total_bruto))
+    col_kpi2.metric(f"Descuentos ({texto_descuentos})", fmt_currency(total_descuento))
+    col_kpi3.metric("Neto", fmt_currency(total_neto))
+    col_kpi4.metric("IVA Total", fmt_currency(total_iva))
+    col_kpi5.metric("Total Final", fmt_currency(total_final), delta=None)
 
     st.markdown("---")
-    if st.button("📄 Generar PDF del Pedido", type="primary"):
-        if cliente_seleccionado is None:
-            st.error("Debes seleccionar un cliente antes de generar el PDF.")
-            st.stop()
 
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", 'B', 16)
-        pdf.cell(0, 10, "PROFORMA DE PEDIDO", ln=True, align='C')
-        pdf.ln(5)
+    # --- Tabla completa de productos ---
+    st.markdown("#### 📋 Detalle de Productos")
+    # Seleccionar columnas para mostrar
+    cols_mostrar = ['Codigo', 'Marca', 'Modelo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'IVA', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado', 'Monto_IVA', 'Es_Oferta']
+    if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
+        cols_mostrar = ['Codigo', 'Marca', 'Modelo', 'Descripcion', 'Embalaje', 'CantidadPorCaja', 'UnidadPrecio'] + cols_mostrar
 
-        pdf.set_font("Arial", 'B', 10)
-        pdf.cell(0, 6, f"Cliente: {cliente_seleccionado}", ln=True)
-        pdf.set_font("Arial", '', 10)
-        pdf.cell(0, 6, f"CUIT: {cli_info.get('C.U.I.T.', '-')} | Condicion: {cli_info.get('FORMA DE PAGO', '-')}", ln=True)
-        pdf.cell(0, 6, f"Vendedor: {cli_info.get('NOMB.VENDEDOR', '-')}", ln=True)
-        pdf.ln(10)
+    df_mostrar = df_carrito[cols_mostrar].copy()
+    # Formatear columnas numéricas
+    for col in ['Precio_Unitario', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado', 'Monto_IVA']:
+        if col in df_mostrar.columns:
+            df_mostrar[col] = df_mostrar[col].apply(fmt_currency)
+    df_mostrar['IVA'] = df_mostrar['IVA'].apply(format_iva)
+    df_mostrar['Es_Oferta'] = df_mostrar['Es_Oferta'].apply(lambda x: "🔥 Oferta" if x else "")
+    st.dataframe(df_mostrar, use_container_width=True)
 
-        pdf.set_font("Arial", 'B', 8)
-        pdf.cell(15, 8, "Codigo", border=1)
-        pdf.cell(15, 8, "Marca", border=1)
-        pdf.cell(18, 8, "Modelo", border=1)
-        pdf.cell(25, 8, "Descripcion", border=1)
-        if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
-            pdf.cell(10, 8, "Emb.", border=1)
-            pdf.cell(10, 8, "Caja", border=1)
-            pdf.cell(12, 8, "Unidad", border=1)
-        pdf.cell(10, 8, "Cant", border=1, align='C')
-        pdf.cell(15, 8, "P.Unit", border=1, align='R')
-        pdf.cell(15, 8, "IVA%", border=1, align='C')
-        pdf.cell(18, 8, "Subtotal", border=1, align='R')
-        pdf.cell(15, 8, "Desc.", border=1, align='R')
-        pdf.cell(18, 8, "Neto", border=1, align='R')
-        pdf.cell(15, 8, "IVA", border=1, align='R')
-        pdf.ln()
+    st.markdown("---")
 
-        pdf.set_font("Arial", '', 7)
-        for _, row in df_carrito.iterrows():
-            desc_corta = str(row.get('Descripcion', ''))[:25]
-            marca_corta = str(row.get('Marca', ''))[:12]
-            modelo_corta = str(row.get('Modelo', ''))[:15]
+    # --- AGRUPACIÓN POR MARCA (Subtotales) ---
+    st.markdown("#### 📦 Resumen por Marca")
 
-            pdf.cell(15, 6, str(row.get('Codigo', ''))[:10], border=1)
-            pdf.cell(15, 6, marca_corta, border=1)
-            pdf.cell(18, 6, modelo_corta, border=1)
-            pdf.cell(25, 6, desc_corta, border=1)
+    # Calcular subtotales por marca
+    marcas_unicas = sorted(df_carrito['Marca'].unique())
+    marca_data = []
 
-            if 'Embalaje' in row and row['Embalaje']:
-                pdf.cell(10, 6, str(row['Embalaje'])[:6], border=1)
-                pdf.cell(10, 6, str(row['CantidadPorCaja'])[:6], border=1)
-                pdf.cell(12, 6, str(row['UnidadPrecio'])[:6], border=1)
-            else:
-                if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
-                    pdf.cell(10, 6, "", border=1)
-                    pdf.cell(10, 6, "", border=1)
-                    pdf.cell(12, 6, "", border=1)
+    for marca in marcas_unicas:
+        mask = df_carrito['Marca'] == marca
+        subset = df_carrito[mask]
+        bruto = subset['Subtotal_Bruto'].sum()
+        neto = subset['Neto_Calculado'].sum()
+        iva = subset['Monto_IVA'].sum()
+        desc = bruto - neto
+        final = neto + iva
+        items = len(subset)
+        # Productos en oferta
+        ofertas = subset[subset['Es_Oferta'] == True]['Codigo'].tolist()
+        marca_data.append({
+            'Marca': marca,
+            'Items': items,
+            'Bruto': bruto,
+            'Descuento': desc,
+            'Neto': neto,
+            'IVA': iva,
+            'Total': final,
+            'Ofertas': ", ".join(ofertas) if ofertas else "Ninguna"
+        })
 
-            pdf.cell(10, 6, str(int(row['Cantidad'])) if row['Cantidad'].is_integer() else f"{row['Cantidad']:.1f}", border=1, align='C')
-            pdf.cell(15, 6, fmt_currency(row['Precio_Unitario']), border=1, align='R')
-            pdf.cell(15, 6, format_iva(row['IVA']), border=1, align='C')
-            pdf.cell(18, 6, fmt_currency(row['Subtotal_Bruto']), border=1, align='R')
-            pdf.cell(15, 6, fmt_currency(row['Monto_Descuento']), border=1, align='R')
-            pdf.cell(18, 6, fmt_currency(row['Neto_Calculado']), border=1, align='R')
-            pdf.cell(15, 6, fmt_currency(row['Monto_IVA']), border=1, align='R')
+    # Mostrar como tabla con formato
+    df_marca = pd.DataFrame(marca_data)
+    for col in ['Bruto', 'Descuento', 'Neto', 'IVA', 'Total']:
+        df_marca[col] = df_marca[col].apply(fmt_currency)
+    st.dataframe(df_marca, use_container_width=True)
+
+    st.markdown("---")
+
+    # --- Totales finales consolidados ---
+    col_tot1, col_tot2, col_tot3, col_tot4, col_tot5 = st.columns(5)
+    col_tot1.metric("Subtotal Bruto", fmt_currency(total_bruto))
+    col_tot2.metric(f"Descuentos ({texto_descuentos})", fmt_currency(total_descuento))
+    col_tot3.metric("Neto", fmt_currency(total_neto))
+    col_tot4.metric("IVA Total", fmt_currency(total_iva))
+    col_tot5.metric("TOTAL FINAL", fmt_currency(total_final), delta=None, delta_color="inverse")
+
+    st.markdown("---")
+
+    # --- Botones de acción ---
+    col_btn1, col_btn2, col_btn3 = st.columns(3)
+
+    with col_btn1:
+        if st.button("🗑️ Vaciar Carrito", use_container_width=True):
+            st.session_state.carrito = []
+            st.rerun()
+
+    with col_btn2:
+        if st.button("📄 Generar PDF del Pedido", type="primary", use_container_width=True):
+            if cliente_seleccionado is None:
+                st.error("Debes seleccionar un cliente antes de generar el PDF.")
+                st.stop()
+
+            # ... (código del PDF, igual que antes pero mejorado)
+            def fmt_currency_pdf(val):
+                return f"${val:,.2f}"
+
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", 'B', 16)
+            pdf.cell(0, 10, "PROFORMA DE PEDIDO", ln=True, align='C')
+            pdf.ln(5)
+
+            pdf.set_font("Arial", 'B', 10)
+            pdf.cell(0, 6, f"Cliente: {cliente_seleccionado}", ln=True)
+            pdf.set_font("Arial", '', 10)
+            pdf.cell(0, 6, f"CUIT: {cli_info.get('C.U.I.T.', '-')} | Condicion: {cli_info.get('FORMA DE PAGO', '-')}", ln=True)
+            pdf.cell(0, 6, f"Vendedor: {cli_info.get('NOMB.VENDEDOR', '-')}", ln=True)
+            pdf.ln(10)
+
+            # Tabla de productos
+            pdf.set_font("Arial", 'B', 7)
+            # Ajustar anchos según columnas
+            pdf.cell(12, 8, "Codigo", border=1)
+            pdf.cell(12, 8, "Marca", border=1)
+            pdf.cell(15, 8, "Modelo", border=1)
+            pdf.cell(25, 8, "Descripcion", border=1)
+            if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
+                pdf.cell(10, 8, "Emb.", border=1)
+                pdf.cell(10, 8, "Caja", border=1)
+                pdf.cell(10, 8, "Unid.", border=1)
+            pdf.cell(10, 8, "Cant", border=1, align='C')
+            pdf.cell(12, 8, "P.Unit", border=1, align='R')
+            pdf.cell(10, 8, "IVA%", border=1, align='C')
+            pdf.cell(15, 8, "Subtotal", border=1, align='R')
+            pdf.cell(12, 8, "Desc.", border=1, align='R')
+            pdf.cell(15, 8, "Neto", border=1, align='R')
+            pdf.cell(12, 8, "IVA", border=1, align='R')
             pdf.ln()
 
-        pdf.ln(5)
-        pdf.set_font("Arial", 'I', 7)
-        pdf.cell(0, 5, "(*) Los articulos marcados como OFERTA o de la hoja 'BATERÍAS Y CARGADORES' no reciben descuentos adicionales.", ln=True)
-        pdf.ln(2)
+            pdf.set_font("Arial", '', 6)
+            for _, row in df_carrito.iterrows():
+                desc_corta = str(row.get('Descripcion', ''))[:22]
+                marca_corta = str(row.get('Marca', ''))[:10]
+                modelo_corta = str(row.get('Modelo', ''))[:12]
 
-        pdf.set_font("Arial", 'B', 10)
-        pdf.cell(150, 6, "Subtotal Bruto (Sin Desc):", align='R')
-        pdf.cell(40, 6, fmt_currency(total_bruto), align='R')
-        pdf.ln()
-        pdf.cell(150, 6, f"Descuentos ({texto_descuentos})", align='R')
-        pdf.cell(40, 6, fmt_currency(total_descuento), align='R')
-        pdf.ln()
-        pdf.cell(150, 6, "Neto:", align='R')
-        pdf.cell(40, 6, fmt_currency(total_neto), align='R')
-        pdf.ln()
-        pdf.cell(150, 6, "IVA Total:", align='R')
-        pdf.cell(40, 6, fmt_currency(total_iva), align='R')
-        pdf.ln()
-        pdf.cell(150, 8, "TOTAL FINAL:", align='R')
-        pdf.cell(40, 8, fmt_currency(total_final), align='R')
+                pdf.cell(12, 5, str(row.get('Codigo', ''))[:8], border=1)
+                pdf.cell(12, 5, marca_corta, border=1)
+                pdf.cell(15, 5, modelo_corta, border=1)
+                pdf.cell(25, 5, desc_corta, border=1)
 
-        fd, path = tempfile.mkstemp(suffix=".pdf")
-        try:
-            pdf.output(path)
-            with open(path, "rb") as f:
-                pdf_bytes = f.read()
-            st.download_button(
-                label="⬇️ Descargar PDF",
-                data=pdf_bytes,
-                file_name="Pedido_Proforma.pdf",
-                mime="application/pdf"
-            )
-            st.success("PDF generado exitosamente.")
-        finally:
-            os.close(fd)
+                if 'Embalaje' in row and row['Embalaje']:
+                    pdf.cell(10, 5, str(row['Embalaje'])[:5], border=1)
+                    pdf.cell(10, 5, str(row['CantidadPorCaja'])[:5], border=1)
+                    pdf.cell(10, 5, str(row['UnidadPrecio'])[:5], border=1)
+                else:
+                    if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
+                        pdf.cell(10, 5, "", border=1)
+                        pdf.cell(10, 5, "", border=1)
+                        pdf.cell(10, 5, "", border=1)
+
+                pdf.cell(10, 5, str(int(row['Cantidad'])) if row['Cantidad'].is_integer() else f"{row['Cantidad']:.1f}", border=1, align='C')
+                pdf.cell(12, 5, fmt_currency_pdf(row['Precio_Unitario']), border=1, align='R')
+                pdf.cell(10, 5, format_iva(row['IVA']), border=1, align='C')
+                pdf.cell(15, 5, fmt_currency_pdf(row['Subtotal_Bruto']), border=1, align='R')
+                pdf.cell(12, 5, fmt_currency_pdf(row['Monto_Descuento']), border=1, align='R')
+                pdf.cell(15, 5, fmt_currency_pdf(row['Neto_Calculado']), border=1, align='R')
+                pdf.cell(12, 5, fmt_currency_pdf(row['Monto_IVA']), border=1, align='R')
+                pdf.ln()
+
+            pdf.ln(3)
+            pdf.set_font("Arial", 'I', 6)
+            pdf.cell(0, 5, "(*) Los articulos marcados como OFERTA o de la hoja 'BATERÍAS Y CARGADORES' no reciben descuentos adicionales.", ln=True)
+            pdf.ln(2)
+
+            # Totales
+            pdf.set_font("Arial", 'B', 9)
+            pdf.cell(130, 6, "Subtotal Bruto (Sin Desc):", align='R')
+            pdf.cell(60, 6, fmt_currency_pdf(total_bruto), align='R')
+            pdf.ln()
+            pdf.cell(130, 6, f"Descuentos ({texto_descuentos}):", align='R')
+            pdf.cell(60, 6, fmt_currency_pdf(total_descuento), align='R')
+            pdf.ln()
+            pdf.cell(130, 6, "Neto:", align='R')
+            pdf.cell(60, 6, fmt_currency_pdf(total_neto), align='R')
+            pdf.ln()
+            pdf.cell(130, 6, "IVA Total:", align='R')
+            pdf.cell(60, 6, fmt_currency_pdf(total_iva), align='R')
+            pdf.ln()
+            pdf.set_font("Arial", 'B', 11)
+            pdf.cell(130, 8, "TOTAL FINAL:", align='R')
+            pdf.cell(60, 8, fmt_currency_pdf(total_final), align='R')
+
+            fd, path = tempfile.mkstemp(suffix=".pdf")
+            try:
+                pdf.output(path)
+                with open(path, "rb") as f:
+                    pdf_bytes = f.read()
+                st.download_button(
+                    label="⬇️ Descargar PDF",
+                    data=pdf_bytes,
+                    file_name=f"Pedido_{cliente_seleccionado[:20]}.pdf",
+                    mime="application/pdf"
+                )
+                st.success("PDF generado exitosamente.")
+            finally:
+                os.close(fd)
+
+    with col_btn3:
+        # Botón para limpiar filtros (no necesario)
+        pass
+
 else:
-    st.info("El carrito está vacío. Buscá un producto y agregalo al pedido.")
+    st.info("🛒 El carrito está vacío. Buscá un producto y agregalo al pedido.")
