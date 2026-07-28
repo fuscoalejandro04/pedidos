@@ -17,7 +17,7 @@ if 'carrito' not in st.session_state:
     st.session_state.carrito = []
 
 # ------------------------------------------------------------
-# FUNCIONES AUXILIARES
+# FUNCIONES AUXILIARES (LIMPIEZA DE DATOS)
 # ------------------------------------------------------------
 def normalize_text(text):
     if not isinstance(text, str):
@@ -44,10 +44,12 @@ def sanitize_text(text):
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
+    # Eliminar cualquier carácter que no sea ASCII imprimible (32-126)
     text = ''.join(c for c in text if 32 <= ord(c) <= 126)
     return text
 
 def clean_text(value):
+    """Limpia valores NaN/None y sanitiza a ASCII."""
     if pd.isna(value) or value is None:
         return ""
     if isinstance(value, str) and value.lower() in ('nan', 'none', 'null', ''):
@@ -55,6 +57,7 @@ def clean_text(value):
     return sanitize_text(str(value))
 
 def fmt_currency(val):
+    """Formatea un número como moneda con separador de miles."""
     return f"${val:,.2f}"
 
 def format_iva(iva_val, es_oferta=False):
@@ -89,6 +92,7 @@ MARCAS_COLORS_HEX = {
 
 # ------------------------------------------------------------
 # FUNCIÓN PARA OBTENER INFORMACIÓN DE PRECIO Y PRESENTACIÓN
+# (Mantener sin cambios, solo para referencia)
 # ------------------------------------------------------------
 def get_product_info(row):
     precio_lista = row['Precio_Lista']
@@ -192,6 +196,7 @@ def get_product_info(row):
 
 # ------------------------------------------------------------
 # FUNCIÓN PARA EXTRAER CATEGORÍA Y ALIMENTACIÓN EN EINHELL
+# (Mantener sin cambios)
 # ------------------------------------------------------------
 def extract_einhell_categories(herramienta_str):
     if not isinstance(herramienta_str, str) or pd.isna(herramienta_str):
@@ -227,7 +232,7 @@ def extract_einhell_categories(herramienta_str):
     return categoria.title(), tipo
 
 # ------------------------------------------------------------
-# 1. CARGAR DATOS Y DETECTAR OFERTAS
+# 1. CARGAR DATOS Y DETECTAR OFERTAS (Mantener sin cambios)
 # ------------------------------------------------------------
 @st.cache_data
 def load_databases():
@@ -375,7 +380,7 @@ except Exception as e:
     st.stop()
 
 # ------------------------------------------------------------
-# CONSTRUCCIÓN DE FILTROS POR MARCA
+# CONSTRUCCIÓN DE FILTROS POR MARCA (Mantener sin cambios)
 # ------------------------------------------------------------
 def build_filtros_config(df):
     config = {}
@@ -428,7 +433,7 @@ def build_filtros_config(df):
 FILTROS_CONFIG = build_filtros_config(df_productos)
 
 # ------------------------------------------------------------
-# 2. SELECCIÓN DE CLIENTE Y DATOS DE ENTREGA
+# 2. SELECCIÓN DE CLIENTE Y DATOS DE ENTREGA (Mantener sin cambios)
 # ------------------------------------------------------------
 st.subheader("1. Selección de Cliente")
 if 'DENOMINACÍON LEGAL' in df_clientes.columns:
@@ -453,7 +458,7 @@ retira_local = st.checkbox("El cliente retira el pedido en el local (no requiere
 st.markdown("---")
 
 # ============================================================
-# 3. CATÁLOGO Y AGREGADO AL CARRITO
+# 3. CATÁLOGO Y AGREGADO AL CARRITO (Mantener sin cambios)
 # ============================================================
 st.subheader("2. Catálogo de Productos")
 
@@ -718,7 +723,7 @@ else:
 st.markdown("---")
 
 # ============================================================
-# 4. RESUMEN DEL PEDIDO
+# 4. RESUMEN DEL PEDIDO Y GENERACIÓN DE PDF (OPTIMIZADO)
 # ============================================================
 st.subheader("3. Resumen del Pedido")
 
@@ -865,15 +870,16 @@ if st.session_state.carrito:
                 st.error("Debes seleccionar un cliente antes de generar el PDF.")
                 st.stop()
 
-            # ==================================================================
-            # GENERACIÓN DE PDF CON JERARQUÍA VISUAL DE 3 NIVELES (UNO DEBAJO DEL OTRO)
-            # ==================================================================
+            # ==============================================================
+            # GENERACIÓN DE PDF OPTIMIZADA CON CONTROL DE MAQUETACIÓN
+            # ==============================================================
 
             pdf = FPDF()
             pdf.set_auto_page_break(auto=True, margin=15)
             pdf.set_margins(left=15, top=15, right=15)
             pdf.add_page()
 
+            # Constantes de diseño
             MARGIN_LEFT = 15
             PAGE_WIDTH = 210 - 30
             FONT_SIZE_LEVEL1 = 9
@@ -885,7 +891,35 @@ if st.session_state.carrito:
             COLOR_LEVEL2 = (68, 68, 68)
             COLOR_LEVEL3 = (136, 136, 136)
             DARK_GRAY = (40, 40, 40)
+            SEPARATOR_COLOR = (230, 230, 230)
+            LINE_HEIGHT_LEVEL1 = 6
+            LINE_HEIGHT_LEVEL2 = 5.5
+            LINE_HEIGHT_LEVEL3 = 4.5
+            PADDING_BETWEEN_PRODUCTS = 3
+            PADDING_TOP = 2
 
+            # Definición de anchos de columna (redistribuidos para dar más espacio a los montos)
+            # Columnas: Codigo, Marca, Modelo/Herramienta, Cant, P.Unit, IVA%, Subtotal, Desc., Neto, IVA
+            # Total = 180 mm
+            W = {
+                'codigo': 14,
+                'marca': 14,
+                'modelo': 36,    # Se comparte con Herramienta
+                'cant': 9,
+                'p_unit': 18,    # Más ancho para montos grandes
+                'iva': 11,
+                'subtotal': 20,  # Más ancho
+                'desc': 14,
+                'neto': 20,      # Más ancho
+                'iva_monto': 16, # Más ancho
+            }
+
+            # Anchos para Einhell (sin columnas extra de embalaje)
+            W_EINHELL = [W['codigo'], W['marca'], W['modelo'], W['cant'], W['p_unit'], W['iva'], W['subtotal'], W['desc'], W['neto'], W['iva_monto']]
+            # Anchos para otras marcas (con columnas de embalaje, que se dibujarán en nivel 3)
+            W_OTRAS = [W['codigo'], W['marca'], W['modelo'], W['cant'], W['p_unit'], W['iva'], W['subtotal'], W['desc'], W['neto'], W['iva_monto']]
+
+            # Funciones de dibujo (optimizadas)
             def draw_title():
                 pdf.set_x(MARGIN_LEFT + PAGE_WIDTH - 80)
                 pdf.set_font("Arial", 'B', FONT_SIZE_TITLE)
@@ -894,7 +928,7 @@ if st.session_state.carrito:
                 pdf.ln(2)
 
             def draw_separator_line():
-                pdf.set_draw_color(200, 200, 200)
+                pdf.set_draw_color(*SEPARATOR_COLOR)
                 pdf.line(MARGIN_LEFT, pdf.get_y(), MARGIN_LEFT + PAGE_WIDTH, pdf.get_y())
                 pdf.ln(4)
 
@@ -936,10 +970,10 @@ if st.session_state.carrito:
                 pdf.set_x(MARGIN_LEFT)
 
                 if es_einhell:
-                    widths = [14, 14, 42, 9, 17, 11, 20, 14, 19, 15]
+                    widths = W_EINHELL
                     headers = ["Código", "Marca", "Herramienta", "Cant", "P.Unit", "IVA%", "Subtotal", "Desc.", "Neto", "IVA"]
                 else:
-                    widths = [14, 14, 40, 9, 17, 11, 20, 14, 19, 15]
+                    widths = W_OTRAS
                     headers = ["Código", "Marca", "Modelo", "Cant", "P.Unit", "IVA%", "Subtotal", "Desc.", "Neto", "IVA"]
 
                 for i, h in enumerate(headers):
@@ -948,7 +982,7 @@ if st.session_state.carrito:
                 pdf.set_text_color(0, 0, 0)
                 pdf.set_fill_color(255, 255, 255)
 
-            def draw_product_row(row, es_einhell, widths):
+            def draw_product_row(row, es_einhell):
                 # Datos
                 codigo = clean_text(str(row['Codigo']))[:12]
                 marca_text = clean_text(str(row['Marca']))[:12]
@@ -960,58 +994,49 @@ if st.session_state.carrito:
                 neto = fmt_currency(row['Neto_Calculado'])
                 iva_monto = fmt_currency(row['Monto_IVA'])
 
-                # ---- FILA 1: Nivel 1 (Código, Marca, Herramienta/Modelo, Cantidad) ----
+                widths = W_EINHELL if es_einhell else W_OTRAS
+
+                # Guardar Y inicial
+                y_start = pdf.get_y()
+
+                # ---- NIVEL 1: Código, Marca, Herramienta/Modelo, Cant ----
                 pdf.set_x(MARGIN_LEFT)
                 pdf.set_font("Arial", 'B', FONT_SIZE_LEVEL1)
                 pdf.set_text_color(COLOR_LEVEL1[0], COLOR_LEVEL1[1], COLOR_LEVEL1[2])
 
-                if es_einhell:
-                    herramienta = clean_text(str(row.get('Herramienta', '')))[:40]
-                    pdf.cell(widths[0], 6, codigo, border=0, align='L')
-                    pdf.cell(widths[1], 6, marca_text, border=0, align='L')
-                    pdf.cell(widths[2], 6, herramienta, border=0, align='L')
-                    pdf.cell(widths[3], 6, cant, border=0, align='C')
-                    # Rellenar el resto de columnas vacías
-                    pdf.cell(widths[4], 6, "", border=0, align='R')
-                    pdf.cell(widths[5], 6, "", border=0, align='C')
-                    pdf.cell(widths[6], 6, "", border=0, align='R')
-                    pdf.cell(widths[7], 6, "", border=0, align='R')
-                    pdf.cell(widths[8], 6, "", border=0, align='R')
-                    pdf.cell(widths[9], 6, "", border=0, align='R')
-                else:
-                    modelo = clean_text(str(row.get('Modelo', '')))[:38]
-                    pdf.cell(widths[0], 6, codigo, border=0, align='L')
-                    pdf.cell(widths[1], 6, marca_text, border=0, align='L')
-                    pdf.cell(widths[2], 6, modelo, border=0, align='L')
-                    pdf.cell(widths[3], 6, cant, border=0, align='C')
-                    pdf.cell(widths[4], 6, "", border=0, align='R')
-                    pdf.cell(widths[5], 6, "", border=0, align='C')
-                    pdf.cell(widths[6], 6, "", border=0, align='R')
-                    pdf.cell(widths[7], 6, "", border=0, align='R')
-                    pdf.cell(widths[8], 6, "", border=0, align='R')
-                    pdf.cell(widths[9], 6, "", border=0, align='R')
+                # Ajustar altura de la celda según contenido (si es muy largo, reducir tamaño)
+                modelo_text = clean_text(str(row.get('Herramienta', '') if es_einhell else row.get('Modelo', '')))[:40]
+
+                # Dibujar nivel 1
+                pdf.cell(widths[0], LINE_HEIGHT_LEVEL1, codigo, border=0, align='L')
+                pdf.cell(widths[1], LINE_HEIGHT_LEVEL1, marca_text, border=0, align='L')
+                pdf.cell(widths[2], LINE_HEIGHT_LEVEL1, modelo_text, border=0, align='L')
+                pdf.cell(widths[3], LINE_HEIGHT_LEVEL1, cant, border=0, align='C')
+                # Rellenar el resto de columnas vacías
+                for i in range(4, len(widths)):
+                    pdf.cell(widths[i], LINE_HEIGHT_LEVEL1, "", border=0, align='R' if i in (4,6,7,8,9) else 'C')
                 pdf.ln()
 
-                # ---- FILA 2: Nivel 2 (Precio Unitario, IVA%, Subtotal, Descuento, Neto, IVA) ----
+                # ---- NIVEL 2: Precios ----
                 pdf.set_x(MARGIN_LEFT)
                 pdf.set_font("Arial", '', FONT_SIZE_LEVEL2)
                 pdf.set_text_color(COLOR_LEVEL2[0], COLOR_LEVEL2[1], COLOR_LEVEL2[2])
 
-                # Las primeras 4 columnas las dejamos vacías (pertenecen al nivel 1)
-                pdf.cell(widths[0], 6, "", border=0, align='L')
-                pdf.cell(widths[1], 6, "", border=0, align='L')
-                pdf.cell(widths[2], 6, "", border=0, align='L')
-                pdf.cell(widths[3], 6, "", border=0, align='C')
-                # Ahora los datos del nivel 2
-                pdf.cell(widths[4], 6, p_unit, border=0, align='R')
-                pdf.cell(widths[5], 6, iva_text, border=0, align='C')
-                pdf.cell(widths[6], 6, subtotal, border=0, align='R')
-                pdf.cell(widths[7], 6, descuento, border=0, align='R')
-                pdf.cell(widths[8], 6, neto, border=0, align='R')
-                pdf.cell(widths[9], 6, iva_monto, border=0, align='R')
+                # Columnas vacías para nivel 1
+                pdf.cell(widths[0], LINE_HEIGHT_LEVEL2, "", border=0, align='L')
+                pdf.cell(widths[1], LINE_HEIGHT_LEVEL2, "", border=0, align='L')
+                pdf.cell(widths[2], LINE_HEIGHT_LEVEL2, "", border=0, align='L')
+                pdf.cell(widths[3], LINE_HEIGHT_LEVEL2, "", border=0, align='C')
+                # Datos de nivel 2 (precios) con alineación a la derecha
+                pdf.cell(widths[4], LINE_HEIGHT_LEVEL2, p_unit, border=0, align='R')
+                pdf.cell(widths[5], LINE_HEIGHT_LEVEL2, iva_text, border=0, align='C')
+                pdf.cell(widths[6], LINE_HEIGHT_LEVEL2, subtotal, border=0, align='R')
+                pdf.cell(widths[7], LINE_HEIGHT_LEVEL2, descuento, border=0, align='R')
+                pdf.cell(widths[8], LINE_HEIGHT_LEVEL2, neto, border=0, align='R')
+                pdf.cell(widths[9], LINE_HEIGHT_LEVEL2, iva_monto, border=0, align='R')
                 pdf.ln()
 
-                # ---- FILA 3: Nivel 3 (Descripción) ----
+                # ---- NIVEL 3: Descripción y datos de embalaje (opcional) ----
                 desc_text = clean_text(str(row.get('Descripcion', '')))
                 if row['Es_Oferta']:
                     desc_text = "OFERTA " + desc_text
@@ -1019,42 +1044,48 @@ if st.session_state.carrito:
                     alimentacion = clean_text(str(row.get('Tipo_Alimentacion', '')))
                     if alimentacion:
                         desc_text += f" ({alimentacion})"
+                # Añadir datos de embalaje para marcas que no son Einhell
+                if not es_einhell:
+                    emb = clean_text(str(row.get('Embalaje', '')))
+                    caja = clean_text(str(row.get('CantidadPorCaja', '')))
+                    unidad = clean_text(str(row.get('UnidadPrecio', '')))
+                    if emb or caja or unidad:
+                        desc_text += f" | Emb: {emb} Caja: {caja} Unidad: {unidad}"
 
+                # Limitar a 2 líneas
                 max_width = PAGE_WIDTH - 4
                 pdf.set_font("Arial", 'I', FONT_SIZE_LEVEL3)
                 pdf.set_text_color(COLOR_LEVEL3[0], COLOR_LEVEL3[1], COLOR_LEVEL3[2])
                 pdf.set_x(MARGIN_LEFT + 2)
 
-                words = desc_text.split()
-                lines = []
-                current_line = ""
-                for word in words:
-                    test_line = (current_line + " " + word).strip()
-                    if pdf.get_string_width(test_line) <= max_width:
-                        current_line = test_line
-                    else:
-                        if current_line:
-                            lines.append(current_line)
-                        current_line = word
-                        if len(lines) >= 2:
-                            break
-                if current_line:
-                    lines.append(current_line)
-                desc_display = " ".join(lines[:2])
-                if len(lines) > 2:
-                    desc_display += "..."
+                # Calcular altura del texto
+                y_before_desc = pdf.get_y()
+                # Usar multi_cell para calcular la altura real
+                pdf.multi_cell(max_width, LINE_HEIGHT_LEVEL3, desc_text, border=0, align='L')
+                y_after_desc = pdf.get_y()
+                # Retroceder para no duplicar la descripción (ya la hemos dibujado)
+                pdf.set_y(y_before_desc)
+                # Volver a dibujar descripción (multi_cell ya la dibujó, pero necesitamos saber la altura)
+                # La solución es dibujarla directamente y luego actualizar el Y.
+                pdf.multi_cell(max_width, LINE_HEIGHT_LEVEL3, desc_text, border=0, align='L')
+                y_after_desc = pdf.get_y()
 
-                pdf.multi_cell(PAGE_WIDTH - 4, 4.5, desc_display, border=0, align='L')
+                # Restaurar estilo
                 pdf.set_text_color(0, 0, 0)
                 pdf.set_font("Arial", '', FONT_SIZE_LEVEL2)
 
-                # Línea separadora
-                pdf.set_draw_color(220, 220, 220)
-                pdf.line(MARGIN_LEFT, pdf.get_y() + 1, MARGIN_LEFT + PAGE_WIDTH, pdf.get_y() + 1)
-                pdf.ln(4)
+                # Dibujar línea separadora con un pequeño padding
+                y_separator = y_after_desc + PADDING_BETWEEN_PRODUCTS
+                pdf.set_y(y_separator)
+                pdf.set_draw_color(*SEPARATOR_COLOR)
+                pdf.line(MARGIN_LEFT, pdf.get_y(), MARGIN_LEFT + PAGE_WIDTH, pdf.get_y())
+                pdf.ln(PADDING_TOP)  # Espacio después de la línea
 
             def draw_subtotal_block(marca, bruto, descuento, neto, iva, total):
-                pdf.set_draw_color(220, 220, 220)
+                # Verificar espacio para el bloque completo (aprox. 20mm)
+                if pdf.get_y() > 220:
+                    pdf.add_page()
+                pdf.set_draw_color(*SEPARATOR_COLOR)
                 pdf.line(MARGIN_LEFT, pdf.get_y(), MARGIN_LEFT + PAGE_WIDTH, pdf.get_y())
                 pdf.ln(2)
                 pdf.set_font("Arial", 'B', 9)
@@ -1071,6 +1102,10 @@ if st.session_state.carrito:
                 pdf.ln(2)
 
             def draw_final_summary(total_bruto, total_descuento, total_neto, total_iva, total_final, texto_descuentos):
+                # Verificar espacio
+                if pdf.get_y() > 200:
+                    pdf.add_page()
+
                 pdf.ln(6)
                 pdf.set_font("Arial", 'B', 10)
                 pdf.set_text_color(0, 0, 0)
@@ -1081,6 +1116,7 @@ if st.session_state.carrito:
                 x_start = MARGIN_LEFT + PAGE_WIDTH - block_width
                 pdf.set_x(x_start)
 
+                # Dibujar los totales
                 pdf.set_font("Arial", 'B', 9)
                 pdf.cell(block_width, 6, clean_text("Subtotal Bruto:"), border=0, align='L')
                 pdf.set_x(x_start + 40)
@@ -1132,6 +1168,8 @@ if st.session_state.carrito:
                 pdf.ln(12)
 
             def draw_footer_notes():
+                if pdf.get_y() > 250:
+                    pdf.add_page()
                 pdf.set_font("Arial", 'I', 8)
                 pdf.set_text_color(80, 80, 80)
                 pdf.cell(0, 5, clean_text("(*) Los articulos marcados como OFERTA o de la hoja 'BATERIAS Y CARGADORES' no reciben descuentos adicionales."), ln=True)
@@ -1148,7 +1186,7 @@ if st.session_state.carrito:
                     pdf.ln(4)
                 pdf.set_text_color(0, 0, 0)
 
-            # ---- INICIO ----
+            # ---- INICIO DE GENERACIÓN ----
             draw_title()
             draw_separator_line()
             draw_client_block()
@@ -1159,21 +1197,16 @@ if st.session_state.carrito:
                 subset = df_carrito[df_carrito['Marca'] == marca]
                 es_einhell = (marca == "Einhell")
 
-                if pdf.get_y() > 230 and idx_marca > 0:
+                # Verificar espacio antes de comenzar una marca
+                if pdf.get_y() > 200 and idx_marca > 0:
                     pdf.add_page()
                     pdf.set_auto_page_break(auto=True, margin=15)
 
                 draw_brand_header(marca, len(subset))
-
-                if es_einhell:
-                    widths = [14, 14, 42, 9, 17, 11, 20, 14, 19, 15]
-                else:
-                    widths = [14, 14, 40, 9, 17, 11, 20, 14, 19, 15]
-
                 draw_table_header(es_einhell)
 
                 for _, row in subset.iterrows():
-                    draw_product_row(row, es_einhell, widths)
+                    draw_product_row(row, es_einhell)
 
                 bruto_marca = subset['Subtotal_Bruto'].sum()
                 neto_marca = subset['Neto_Calculado'].sum()
@@ -1183,11 +1216,12 @@ if st.session_state.carrito:
                 draw_subtotal_block(marca, bruto_marca, desc_marca, neto_marca, iva_marca, total_marca)
 
                 pdf.set_x(MARGIN_LEFT)
-                pdf.cell(0, 6, "", border=0)
+                pdf.cell(0, 4, "", border=0)  # Espacio entre marcas
 
             draw_final_summary(total_bruto, total_descuento, total_neto, total_iva, total_final, texto_descuentos)
             draw_footer_notes()
 
+            # ---- GUARDAR ----
             fd, path = tempfile.mkstemp(suffix=".pdf")
             try:
                 pdf.output(path)
