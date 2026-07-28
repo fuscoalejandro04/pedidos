@@ -16,7 +16,7 @@ if 'carrito' not in st.session_state:
     st.session_state.carrito = []
 
 # ------------------------------------------------------------
-# FUNCIÓN PARA NORMALIZAR TEXTO (eliminar tildes)
+# FUNCIÓN PARA NORMALIZAR TEXTO
 # ------------------------------------------------------------
 def normalize_text(text):
     if not isinstance(text, str):
@@ -33,7 +33,8 @@ def get_product_price_info(row):
     """
     Devuelve:
     - precio_unitario: precio por unidad (si UnidadPrecio es numérico) o precio por lote (si no)
-    - step: siempre 1 (para permitir cantidades enteras)
+    - step: paso sugerido para la cantidad
+    - min_value: valor mínimo sugerido (para unidades sueltas con caja, es la cantidad de la caja)
     - ayuda: texto informativo
     - precio_lote: el precio de lista (precio por lote completo)
     - tipo_cantidad: 'unidades' o 'lotes'
@@ -50,11 +51,26 @@ def get_product_price_info(row):
         if unidad_num > 0:
             # Precio de lista es por "unidad_num" unidades → precio unitario
             precio_unitario = precio_lista / unidad_num
-            step = 1.0
             tipo_cantidad = 'unidades'
             cantidad_por_lote = unidad_num
-            ayuda = f"Precio unitario: ${precio_unitario:.2f} | Presentación de {unidad_num} unidades (${precio_lista:,.2f})"
-            return precio_unitario, step, ayuda, precio_lista, tipo_cantidad, cantidad_por_lote
+            # Verificar si existe CantidadPorCaja para restringir a múltiplos
+            try:
+                caja_num = float(caja) if caja else 0
+                if caja_num > 0 and caja_num <= unidad_num:
+                    # Se vende en cajas de caja_num unidades (múltiplos de caja_num)
+                    step = caja_num
+                    min_value = caja_num
+                    ayuda = f"Venta en cajas de {caja_num} unidades (múltiplos) | Precio unitario: ${precio_unitario:.2f} | Caja: ${precio_lista * (caja_num / unidad_num):,.2f}"
+                else:
+                    # Sin restricción de caja, cualquier cantidad
+                    step = 1.0
+                    min_value = 0.0
+                    ayuda = f"Precio unitario: ${precio_unitario:.2f} | Presentación de {unidad_num} unidades (${precio_lista:,.2f})"
+            except:
+                step = 1.0
+                min_value = 0.0
+                ayuda = f"Precio unitario: ${precio_unitario:.2f} | Presentación de {unidad_num} unidades (${precio_lista:,.2f})"
+            return precio_unitario, step, min_value, ayuda, precio_lista, tipo_cantidad, cantidad_por_lote
     except:
         pass
 
@@ -66,29 +82,32 @@ def get_product_price_info(row):
             # El precio unitario es el precio del lote (porque la cantidad es en lotes)
             precio_unitario = precio_lista  # precio por lote
             step = 1.0
+            min_value = 0.0
             tipo_cantidad = 'lotes'
             cantidad_por_lote = caja_num
             if embalaje.upper() == "GRANEL":
                 ayuda = f"Cantidad en lotes (granel de {caja_num} unidades) | Precio por lote: ${precio_lista:,.2f}"
             else:
                 ayuda = f"Cantidad en lotes ({embalaje} de {caja_num} unidades) | Precio por lote: ${precio_lista:,.2f}"
-            return precio_unitario, step, ayuda, precio_lista, tipo_cantidad, cantidad_por_lote
+            return precio_unitario, step, min_value, ayuda, precio_lista, tipo_cantidad, cantidad_por_lote
         else:
             # No hay cantidad por caja, asumimos precio unitario = precio de lista
             precio_unitario = precio_lista
             step = 1.0
+            min_value = 0.0
             tipo_cantidad = 'unidades'
             cantidad_por_lote = 1
             ayuda = "Precio unitario (sin embalaje definido)"
-            return precio_unitario, step, ayuda, precio_lista, tipo_cantidad, cantidad_por_lote
+            return precio_unitario, step, min_value, ayuda, precio_lista, tipo_cantidad, cantidad_por_lote
     except:
         # Si no se puede usar CantidadPorCaja, precio unitario = precio de lista
         precio_unitario = precio_lista
         step = 1.0
+        min_value = 0.0
         tipo_cantidad = 'unidades'
         cantidad_por_lote = 1
         ayuda = "Precio unitario"
-        return precio_unitario, step, ayuda, precio_lista, tipo_cantidad, cantidad_por_lote
+        return precio_unitario, step, min_value, ayuda, precio_lista, tipo_cantidad, cantidad_por_lote
 
 # ------------------------------------------------------------
 # FUNCIÓN PARA EXTRAER CATEGORÍA Y ALIMENTACIÓN EN EINHELL
@@ -440,8 +459,8 @@ if not df_filtrado.empty:
         else:
             prod_data = presentaciones.iloc[0]
 
-        # Obtener información de precio y cantidad
-        precio_unitario, step_sugerido, ayuda_cantidad, precio_lote, tipo_cantidad, cantidad_por_lote = get_product_price_info(prod_data)
+        # Obtener información de precio y cantidad (incluyendo step y min_value)
+        precio_unitario, step_sugerido, min_value, ayuda_cantidad, precio_lote, tipo_cantidad, cantidad_por_lote = get_product_price_info(prod_data)
 
         with st.expander("📋 Detalles del producto seleccionado", expanded=True):
             col_det1, col_det2 = st.columns(2)
@@ -485,30 +504,48 @@ if not df_filtrado.empty:
         else:
             precio_unitario_a_usar = precio_unitario
 
-        step_final = 1.0
-        valor_inicial = 1.0
+        # Usar step y min_value obtenidos
+        step_final = float(step_sugerido) if step_sugerido > 0 else 1.0
+        min_val = float(min_value) if min_value > 0 else 0.0
+        # Si min_val es 0, valor inicial puede ser 0 o step, pero mejor step
+        valor_inicial = step_final if step_final > 0 else 1.0
 
         # Etiqueta del campo cantidad según tipo
         if tipo_cantidad == 'lotes':
             label_cantidad = f"Cantidad (lotes de {cantidad_por_lote} unidades)"
+            # Para lotes, el step es 1, pero mostramos el mensaje
+            if step_final == 1.0:
+                ayuda_extra = f" (cada lote = {cantidad_por_lote} unidades)"
+            else:
+                ayuda_extra = ""
         else:
-            label_cantidad = "Cantidad (unidades sueltas)"
+            if step_final > 1:
+                label_cantidad = f"Cantidad (múltiplos de {step_final} unidades)"
+                ayuda_extra = f" (caja mínima de {step_final} unidades)"
+            else:
+                label_cantidad = "Cantidad (unidades sueltas)"
+                ayuda_extra = ""
 
         cantidad = col_qty.number_input(
             label_cantidad,
-            min_value=0.0,
-            value=valor_inicial,
+            min_value=min_val,
+            value=valor_inicial if min_val > 0 else step_final,
             step=step_final,
             format="%g"
         )
 
         if ayuda_cantidad:
-            st.caption(ayuda_cantidad)
+            st.caption(ayuda_cantidad + (ayuda_extra if ayuda_extra else ""))
 
         if col_btn.button("➕ Agregar al Carrito", use_container_width=True):
             if cantidad <= 0:
                 st.error("La cantidad debe ser mayor a 0.")
             else:
+                # Validar que la cantidad sea múltiplo del step (solo si step > 1 y min_val > 0)
+                if step_final > 1 and min_val > 0:
+                    if cantidad % step_final != 0:
+                        st.error(f"La cantidad debe ser múltiplo de {step_final} (cajas completas).")
+                        st.stop()
                 st.session_state.carrito.append({
                     "Codigo": str(prod_data['Codigo']),
                     "Descripcion": str(prod_data['Descripcion']),
@@ -528,7 +565,9 @@ if not df_filtrado.empty:
                     "UnidadPrecio": str(prod_data.get('UnidadPrecio', '')) if pd.notna(prod_data.get('UnidadPrecio')) else '',
                     "Precio_Presentacion": precio_lote if not prod_data['Es_Oferta'] else prod_data['Precio_Oferta'],
                     "Tipo_Cantidad": tipo_cantidad,
-                    "Cantidad_Por_Lote": cantidad_por_lote
+                    "Cantidad_Por_Lote": cantidad_por_lote,
+                    "Step": step_final,  # guardar para edición en carrito
+                    "Min_Value": min_val
                 })
                 st.success(f"¡Agregado: {cantidad}x {prod_data['Codigo']}!")
 else:
@@ -547,6 +586,17 @@ if st.session_state.carrito:
             if new_cantidad <= 0:
                 st.session_state.carrito.pop(index)
             else:
+                # Verificar si el nuevo valor respeta el step (si se guardó)
+                step = st.session_state.carrito[index].get('Step', 1)
+                min_val = st.session_state.carrito[index].get('Min_Value', 0)
+                if step > 1 and min_val > 0:
+                    if new_cantidad % step != 0:
+                        st.warning(f"La cantidad debe ser múltiplo de {step}. Se ajustará al múltiplo inferior más cercano.")
+                        new_cantidad = (new_cantidad // step) * step
+                        if new_cantidad == 0:
+                            st.session_state.carrito.pop(index)
+                            st.rerun()
+                            return
                 st.session_state.carrito[index]['Cantidad'] = new_cantidad
                 st.session_state.carrito[index]['Subtotal_Bruto'] = st.session_state.carrito[index]['Precio_Unitario'] * new_cantidad
         else:
@@ -560,14 +610,18 @@ if st.session_state.carrito:
             with col1:
                 st.write(f"**{i+1}**")
             with col2:
-                # Mostrar información clara
                 tipo = item.get('Tipo_Cantidad', 'unidades')
                 if tipo == 'lotes':
                     qty_lote = item.get('Cantidad_Por_Lote', 1)
                     st.write(f"{item['Codigo']} - {str(item.get('Descripcion', ''))[:25]}")
                     st.caption(f"Lotes de {qty_lote} unidades")
                 else:
-                    st.write(f"{item['Codigo']} - {str(item.get('Descripcion', ''))[:30]}")
+                    step = item.get('Step', 1)
+                    if step > 1:
+                        st.write(f"{item['Codigo']} - {str(item.get('Descripcion', ''))[:25]}")
+                        st.caption(f"Cajas de {step} unidades")
+                    else:
+                        st.write(f"{item['Codigo']} - {str(item.get('Descripcion', ''))[:30]}")
             with col3:
                 st.write(f"${item['Precio_Unitario']:,.2f}")
             with col4:
