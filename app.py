@@ -44,11 +44,6 @@ def iva_badge(iva_val):
         color = "#6c757d"
     return f'<span style="background-color:{color}; color:white; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:bold;">{pct}</span>'
 
-def discount_badge(percentage):
-    if percentage > 0:
-        return f'<span style="background-color:#dc3545; color:white; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:bold;">-{percentage:.1f}%</span>'
-    return ""
-
 # ------------------------------------------------------------
 # FUNCIÓN PARA OBTENER INFORMACIÓN DE PRECIO Y PRESENTACIÓN
 # ------------------------------------------------------------
@@ -749,20 +744,40 @@ if st.session_state.carrito:
 
     st.markdown("---")
 
-    # --- Tabla completa de productos ---
+    # --- Tabla completa de productos (CORREGIDO: evitar columnas duplicadas) ---
     st.markdown("#### 📋 Detalle de Productos")
-    # Seleccionar columnas para mostrar
-    cols_mostrar = ['Codigo', 'Marca', 'Modelo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'IVA', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado', 'Monto_IVA', 'Es_Oferta']
-    if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
-        cols_mostrar = ['Codigo', 'Marca', 'Modelo', 'Descripcion', 'Embalaje', 'CantidadPorCaja', 'UnidadPrecio'] + cols_mostrar
 
+    # Definir columnas base
+    base_cols = ['Codigo', 'Marca', 'Modelo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'IVA', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado', 'Monto_IVA', 'Es_Oferta']
+
+    # Verificar si existen columnas de embalaje en df_carrito
+    extra_cols = []
+    if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
+        extra_cols.extend(['Embalaje', 'CantidadPorCaja', 'UnidadPrecio'])
+
+    # Construir lista final sin duplicados: insertar extra_cols después de 'Descripcion'
+    if extra_cols:
+        idx = base_cols.index('Descripcion') + 1
+        cols_mostrar = base_cols[:idx] + extra_cols + base_cols[idx:]
+    else:
+        cols_mostrar = base_cols
+
+    # Filtrar solo las columnas que existen en df_carrito para evitar errores
+    cols_mostrar = [col for col in cols_mostrar if col in df_carrito.columns]
+
+    # Crear DataFrame de visualización
     df_mostrar = df_carrito[cols_mostrar].copy()
+
     # Formatear columnas numéricas
-    for col in ['Precio_Unitario', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado', 'Monto_IVA']:
+    numeric_cols = ['Precio_Unitario', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado', 'Monto_IVA']
+    for col in numeric_cols:
         if col in df_mostrar.columns:
             df_mostrar[col] = df_mostrar[col].apply(fmt_currency)
-    df_mostrar['IVA'] = df_mostrar['IVA'].apply(format_iva)
-    df_mostrar['Es_Oferta'] = df_mostrar['Es_Oferta'].apply(lambda x: "🔥 Oferta" if x else "")
+    if 'IVA' in df_mostrar.columns:
+        df_mostrar['IVA'] = df_mostrar['IVA'].apply(format_iva)
+    if 'Es_Oferta' in df_mostrar.columns:
+        df_mostrar['Es_Oferta'] = df_mostrar['Es_Oferta'].apply(lambda x: "🔥 Oferta" if x else "")
+
     st.dataframe(df_mostrar, use_container_width=True)
 
     st.markdown("---")
