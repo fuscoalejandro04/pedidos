@@ -204,6 +204,50 @@ def extract_einhell_categories(herramienta_str):
         tipo = "No especificado"
     return categoria.title(), tipo
 
+def standardize_product_columns(df, filename):
+    # 1. PRIMERO hacemos los renombramientos según el archivo
+    if "KWB" in filename:
+        if 'Nombre' in df.columns: 
+            df = df.rename(columns={'Nombre': 'Modelo'})
+        df['Marca'] = 'KWB'
+        
+    elif "Einhell" in filename:
+        df['Hoja_Origen'] = 'Einhell'
+        df['Marca'] = 'Einhell'
+        
+    elif "Fijaciones" in filename:
+        if 'PrecioLista' in df.columns: 
+            df = df.rename(columns={'PrecioLista': 'Precio_Lista'})
+        if 'Descripcion' in df.columns: 
+            df['Modelo'] = df['Descripcion']
+        df['Marca'] = 'Fijaciones'
+        df['Hoja_Origen'] = 'Fijaciones'
+        
+    elif "Penosil" in filename:
+        df = df.rename(columns={'Artículo': 'Codigo', 'Nombre': 'Modelo', 'PrecioLista': 'Precio_Lista'})
+        df['Marca'] = 'Penosil'
+        df['Hoja_Origen'] = 'Penosil'
+        
+    else:
+        if 'PrecioLista' in df.columns: 
+            df = df.rename(columns={'PrecioLista': 'Precio_Lista'})
+        if 'Artículo' in df.columns: 
+            df = df.rename(columns={'Artículo': 'Codigo'})
+        if 'Nombre' in df.columns and 'Modelo' not in df.columns: 
+            df['Modelo'] = df['Nombre']
+
+    # 2. DESPUÉS verificamos y agregamos las columnas faltantes (evita duplicados)
+    required = ['Codigo', 'Descripcion', 'Modelo', 'Marca', 'Precio_Lista', 'IVA', 
+                'Hoja_Origen', 'Herramienta', 'Color', 'CantidadPorCaja', 'Embalaje', 'UnidadPrecio']
+    
+    for col in required:
+        if col not in df.columns:
+            df[col] = None
+
+    df['IVA'] = pd.to_numeric(df.get('IVA', 0.21), errors='coerce').fillna(0.21)
+    
+    return df
+
 # ------------------------------------------------------------
 # 1. CARGAR DATOS Y DETECTAR OFERTAS
 # ------------------------------------------------------------
@@ -266,30 +310,6 @@ def load_databases():
             pass
 
     return df_cli, df_prod
-
-def standardize_product_columns(df, filename):
-    for col in ['Herramienta', 'CantidadPorCaja', 'Embalaje', 'UnidadPrecio', 'Color', 'Modelo', 'Descripcion', 'Marca', 'Hoja_Origen']:
-        if col not in df.columns:
-            df[col] = None
-
-    if "KWB" in filename:
-        if 'Nombre' in df.columns: df = df.rename(columns={'Nombre': 'Modelo'})
-        df['Marca'] = 'KWB'
-    elif "Einhell" in filename:
-        df['Hoja_Origen'] = 'Einhell'
-        df['Marca'] = 'Einhell'
-    elif "Fijaciones" in filename:
-        if 'PrecioLista' in df.columns: df = df.rename(columns={'PrecioLista': 'Precio_Lista'})
-        if 'Descripcion' in df.columns: df['Modelo'] = df['Descripcion']
-        df['Marca'] = 'Fijaciones'
-        df['Hoja_Origen'] = 'Fijaciones'
-    elif "Penosil" in filename:
-        df = df.rename(columns={'Artículo': 'Codigo', 'Nombre': 'Modelo', 'PrecioLista': 'Precio_Lista'})
-        df['Marca'] = 'Penosil'
-        df['Hoja_Origen'] = 'Penosil'
-
-    df['IVA'] = pd.to_numeric(df.get('IVA', 0.21), errors='coerce').fillna(0.21)
-    return df
 
 try:
     df_clientes, df_productos = load_databases()
