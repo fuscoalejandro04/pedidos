@@ -29,7 +29,7 @@ def normalize_text(text):
 
 def sanitize_text(text):
     """
-    Convierte texto a ASCII eliminando tildes, eñes y caracteres especiales.
+    Convierte texto a ASCII, eliminando tildes, eñes y caracteres especiales.
     Reemplaza símbolos comunes por equivalentes.
     """
     if not isinstance(text, str):
@@ -59,6 +59,10 @@ def sanitize_text(text):
         '·': '.',
         'ª': 'a',
         'º': 'o',
+        '█': '#',      # Reemplazar bloques Unicode
+        '▓': '#',
+        '▒': '#',
+        '░': '#',
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
@@ -1084,7 +1088,7 @@ if st.session_state.carrito:
             pdf.cell(80, 10, fmt_currency(total_final), border=0, align='R')
             pdf.ln(8)
 
-            # ---- NOTAS Y LEYENDA ----
+            # ---- NOTAS Y LEYENDA (CORREGIDO: sin bloques Unicode) ----
             pdf.set_font("Arial", 'I', 8)
             pdf.set_text_color(80, 80, 80)
             pdf.cell(0, 5, sanitize_text("(*) Los articulos marcados como OFERTA o de la hoja 'BATERÍAS Y CARGADORES' no reciben descuentos adicionales."), ln=True)
@@ -1097,8 +1101,10 @@ if st.session_state.carrito:
             for marca, hex_color in MARCAS_COLORS_HEX.items():
                 pdf.set_text_color(0, 0, 0)
                 pdf.cell(20, 5, sanitize_text(f"{marca}:"), border=0)
+                # Usar texto en lugar de bloques Unicode
+                color_name = {"#8B0000": "Rojo Oscuro", "#CC5500": "Naranja", "#B22222": "Rojo"}.get(hex_color, "Color")
                 pdf.set_text_color(int(hex_color[1:3], 16), int(hex_color[3:5], 16), int(hex_color[5:7], 16))
-                pdf.cell(20, 5, "██████", border=0)
+                pdf.cell(20, 5, sanitize_text(color_name), border=0)
                 pdf.ln(4)
             pdf.set_text_color(0, 0, 0)
 
