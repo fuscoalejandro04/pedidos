@@ -250,7 +250,6 @@ def standardize_product_columns(df, filename):
     if 'Herramienta' not in df.columns:
         df['Herramienta'] = None
 
-    # Asegurar que las columnas extra existan para todos los archivos
     for extra in ['CantidadPorCaja', 'Embalaje', 'UnidadPrecio', 'Color']:
         if extra not in df.columns:
             df[extra] = None
@@ -316,15 +315,13 @@ except Exception as e:
     st.stop()
 
 # ------------------------------------------------------------
-# CONSTRUCCIÓN DE FILTROS POR MARCA (con verificaciones robustas)
+# CONSTRUCCIÓN DE FILTROS POR MARCA (con verificaciones)
 # ------------------------------------------------------------
 def build_filtros_config(df):
     config = {}
-    # Verificar que exista la columna 'Marca'
     if 'Marca' not in df.columns:
         return config
 
-    # Einhell
     try:
         if 'Categoria_Generica' in df.columns and df['Categoria_Generica'].notna().any():
             sub_df = df[df['Marca'] == "Einhell"]
@@ -336,7 +333,6 @@ def build_filtros_config(df):
     except:
         pass
 
-    # Fijaciones
     try:
         if 'Embalaje' in df.columns and df['Embalaje'].notna().any():
             sub_df = df[df['Marca'] == "Fijaciones"]
@@ -347,7 +343,6 @@ def build_filtros_config(df):
     except:
         pass
 
-    # KWB
     try:
         if 'Hoja_Origen' in df.columns and df['Hoja_Origen'].notna().any():
             sub_df = df[df['Marca'] == "KWB"]
@@ -358,7 +353,6 @@ def build_filtros_config(df):
     except:
         pass
 
-    # Penosil
     try:
         if 'Color' in df.columns and df['Color'].notna().any():
             sub_df = df[df['Marca'] == "Penosil"]
@@ -489,9 +483,32 @@ if not df_filtrado.empty:
 
     productos_unicos = df_filtrado.drop_duplicates(subset=['Clave_Producto']).copy()
     productos_unicos['Descripcion'] = productos_unicos['Descripcion'].fillna('').astype(str)
-    productos_unicos['Display'] = productos_unicos.apply(
-        lambda row: f"{row['Codigo']} | {row['Marca']} | {row['Descripcion'][:30]}", axis=1
-    )
+    
+    # --- MEJORA VISUAL: dropdown más informativo ---
+    def format_display(row):
+        precio = row['Precio_Oferta'] if row['Es_Oferta'] else row['Precio_Lista']
+        # Obtenemos el precio unitario real (para productos con presentación)
+        info_precio = get_product_info(row)
+        precio_mostrar = info_precio['precio_unitario'] if not row['Es_Oferta'] else row['Precio_Oferta']
+        etiqueta = "🔥 " if row['Es_Oferta'] else ""
+        herramienta = str(row.get('Herramienta', '')).strip() if pd.notna(row.get('Herramienta')) else ''
+        if herramienta:
+            # Mostrar solo primeras palabras de la herramienta para no alargar
+            herramienta_short = ' '.join(herramienta.split()[:3])
+            info = f"{herramienta_short}"
+        else:
+            info = f"{row['Marca']}"
+        
+        modelo = str(row.get('Modelo', ''))[:25] if pd.notna(row.get('Modelo')) else ''
+        if modelo:
+            display_text = f"{etiqueta}{row['Codigo']} | {info} | {modelo} | {fmt_currency(precio_mostrar)}"
+        else:
+            # Si no hay modelo, usar descripción corta
+            desc = str(row.get('Descripcion', ''))[:20] if pd.notna(row.get('Descripcion')) else ''
+            display_text = f"{etiqueta}{row['Codigo']} | {info} | {desc} | {fmt_currency(precio_mostrar)}"
+        return display_text
+
+    productos_unicos['Display'] = productos_unicos.apply(format_display, axis=1)
     display_options = productos_unicos['Display'].tolist()
 
     col_sel, col_qty, col_btn = st.columns([3, 1, 1])
@@ -518,47 +535,51 @@ if not df_filtrado.empty:
 
         info = get_product_info(prod_data)
 
+        # --- MEJORA VISUAL: detalles con precio destacado primero ---
         with st.expander("📋 Detalles del producto seleccionado", expanded=True):
-            col_det1, col_det2 = st.columns(2)
-            col_det1.markdown(f"**Código:** `{prod_data['Codigo']}`")
-            col_det1.markdown(f"**Marca:** {prod_data['Marca']}")
-            col_det1.markdown(f"**Modelo:** {prod_data['Modelo']}")
-            if pd.notna(prod_data.get('Herramienta')):
-                col_det1.markdown(f"**Herramienta:** {prod_data['Herramienta']}")
-            if pd.notna(prod_data.get('Categoria_Generica')):
-                col_det1.markdown(f"**Categoría:** {prod_data['Categoria_Generica']}")
-            if pd.notna(prod_data.get('Tipo_Alimentacion')):
-                col_det1.markdown(f"**Alimentación:** {prod_data['Tipo_Alimentacion']}")
-            col_det2.markdown(f"**Descripción:** {prod_data['Descripcion']}")
-
-            extra_info = []
-            if pd.notna(prod_data.get('Embalaje')):
-                extra_info.append(f"**Embalaje mayor:** {prod_data['Embalaje']}")
-            if pd.notna(prod_data.get('CantidadPorCaja')):
-                extra_info.append(f"**Cant. por unidad de venta:** {prod_data['CantidadPorCaja']}")
-            if pd.notna(prod_data.get('UnidadPrecio')):
-                extra_info.append(f"**Unidad de precio:** {prod_data['UnidadPrecio']}")
-            if extra_info:
-                st.markdown("**Datos de empaque:** " + " | ".join(extra_info))
-
-            st.markdown("---")
-            st.markdown(f"**Unidad de venta:** {info['unidad_venta']}")
-            if info['tipo_cantidad'] == 'lotes':
-                st.markdown(f"**Precio por {info['unidad_venta']}:** {fmt_currency(info['precio_lote'])}")
-                st.markdown(f"**Cada {info['unidad_venta']} contiene:** {info['cantidad_por_lote']} unidades")
-                st.markdown(f"**Precio unitario (referencia):** {fmt_currency(info['precio_lote'] / info['cantidad_por_lote'])}")
-            else:
-                st.markdown(f"**Precio unitario:** {fmt_currency(info['precio_unitario'])}")
-                st.markdown(f"**Presentación de:** {info['cantidad_por_lote']} unidades ({fmt_currency(info['precio_lote'])})")
-                if info['step'] > 1:
-                    st.info(f"📦 Venta en cajas de {info['step']} unidades. La cantidad debe ser múltiplo de {info['step']}.")
-
-            precio_oferta = prod_data['Precio_Oferta'] if prod_data['Es_Oferta'] else None
+            # Precio destacado
+            precio_unitario_a_usar = prod_data['Precio_Oferta'] if prod_data['Es_Oferta'] else info['precio_unitario']
+            st.markdown(f"## {fmt_currency(precio_unitario_a_usar)}")
             if prod_data['Es_Oferta']:
-                st.markdown(f"**Precio de oferta:** {fmt_currency(precio_oferta)} por unidad")
-            if prod_data.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(prod_data['Hoja_Origen']).upper():
-                st.info("🔋 Este producto es de la hoja BATERÍAS Y CARGADORES y no recibe descuentos adicionales.")
+                st.markdown("### 🔥 Precio de oferta")
+            # Datos principales
+            col_det1, col_det2 = st.columns(2)
+            with col_det1:
+                st.markdown(f"**Código:** `{prod_data['Codigo']}`")
+                st.markdown(f"**Marca:** {prod_data['Marca']}")
+                if pd.notna(prod_data.get('Herramienta')):
+                    st.markdown(f"**Herramienta:** {prod_data['Herramienta']}")
+                if pd.notna(prod_data.get('Modelo')):
+                    st.markdown(f"**Modelo:** {prod_data['Modelo']}")
+                if pd.notna(prod_data.get('Categoria_Generica')):
+                    st.markdown(f"**Categoría:** {prod_data['Categoria_Generica']}")
+                if pd.notna(prod_data.get('Tipo_Alimentacion')):
+                    st.markdown(f"**Alimentación:** {prod_data['Tipo_Alimentacion']}")
+            with col_det2:
+                st.markdown(f"**Descripción:** {prod_data['Descripcion']}")
+                # Información de presentación/empaque
+                extra_info = []
+                if pd.notna(prod_data.get('Embalaje')):
+                    extra_info.append(f"**Embalaje mayor:** {prod_data['Embalaje']}")
+                if pd.notna(prod_data.get('CantidadPorCaja')):
+                    extra_info.append(f"**Cant. por unidad de venta:** {prod_data['CantidadPorCaja']}")
+                if pd.notna(prod_data.get('UnidadPrecio')):
+                    extra_info.append(f"**Unidad de precio:** {prod_data['UnidadPrecio']}")
+                if extra_info:
+                    st.markdown(" | ".join(extra_info))
+                st.markdown("---")
+                st.markdown(f"**Unidad de venta:** {info['unidad_venta']}")
+                if info['tipo_cantidad'] == 'lotes':
+                    st.markdown(f"**Precio por {info['unidad_venta']}:** {fmt_currency(info['precio_lote'])}")
+                    st.markdown(f"**Cada {info['unidad_venta']} contiene:** {info['cantidad_por_lote']} unidades")
+                    st.markdown(f"**Precio unitario (referencia):** {fmt_currency(info['precio_lote'] / info['cantidad_por_lote'])}")
+                else:
+                    if info['step'] > 1:
+                        st.markdown(f"**Venta en cajas de {info['step']} unidades**")
+                if prod_data.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(prod_data['Hoja_Origen']).upper():
+                    st.info("🔋 Este producto es de la hoja BATERÍAS Y CARGADORES y no recibe descuentos adicionales.")
 
+        # ... resto del código de agregado al carrito (igual que antes)
         if prod_data['Es_Oferta']:
             precio_unitario_a_usar = prod_data['Precio_Oferta']
         else:
