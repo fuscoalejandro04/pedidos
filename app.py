@@ -71,6 +71,12 @@ MARCAS_COLORS = {
     "Fijaciones": (204, 85, 0), # Naranja oscuro
     "Penosil": (255, 0, 0),    # Rojo puro
 }
+MARCAS_COLORS_HEX = {
+    "Einhell": "#8B0000",
+    "KWB": "#8B0000",
+    "Fijaciones": "#CC5500",
+    "Penosil": "#FF0000",
+}
 
 # ------------------------------------------------------------
 # FUNCIÓN PARA OBTENER INFORMACIÓN DE PRECIO Y PRESENTACIÓN
@@ -854,7 +860,7 @@ if st.session_state.carrito:
                 st.stop()
 
             # ------------------------------------------------------------
-            # NUEVA GENERACIÓN DE PDF (estilo limpio y profesional)
+            # GENERACIÓN DE PDF (estilo limpio y profesional)
             # ------------------------------------------------------------
             pdf = FPDF()
             pdf.add_page()
@@ -898,7 +904,6 @@ if st.session_state.carrito:
             pdf.ln(8)
 
             # ---- DEFINICIÓN DE ANCHOS PARA TABLA ----
-            # Anchos optimizados para A4
             col_widths = {
                 'Codigo': 12,
                 'Marca': 12,
@@ -939,7 +944,6 @@ if st.session_state.carrito:
                 pdf.set_text_color(255, 255, 255)
                 pdf.set_x(10)
 
-                # Encabezados
                 headers = ["Codigo", "Marca", "Modelo", "Descripcion", "Cant", "P.Unit", "IVA%", "Subtotal", "Desc.", "Neto", "IVA"]
                 widths = [
                     col_widths['Codigo'], col_widths['Marca'], col_widths['Modelo'],
