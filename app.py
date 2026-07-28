@@ -459,7 +459,7 @@ if not df_filtrado.empty:
         else:
             prod_data = presentaciones.iloc[0]
 
-        # Obtener información de precio y cantidad (incluyendo step y min_value)
+        # Obtener información de precio y cantidad
         precio_unitario, step_sugerido, min_value, ayuda_cantidad, precio_lote, tipo_cantidad, cantidad_por_lote = get_product_price_info(prod_data)
 
         with st.expander("📋 Detalles del producto seleccionado", expanded=True):
@@ -504,27 +504,17 @@ if not df_filtrado.empty:
         else:
             precio_unitario_a_usar = precio_unitario
 
-        # Usar step y min_value obtenidos
         step_final = float(step_sugerido) if step_sugerido > 0 else 1.0
         min_val = float(min_value) if min_value > 0 else 0.0
-        # Si min_val es 0, valor inicial puede ser 0 o step, pero mejor step
         valor_inicial = step_final if step_final > 0 else 1.0
 
-        # Etiqueta del campo cantidad según tipo
         if tipo_cantidad == 'lotes':
             label_cantidad = f"Cantidad (lotes de {cantidad_por_lote} unidades)"
-            # Para lotes, el step es 1, pero mostramos el mensaje
-            if step_final == 1.0:
-                ayuda_extra = f" (cada lote = {cantidad_por_lote} unidades)"
-            else:
-                ayuda_extra = ""
         else:
             if step_final > 1:
                 label_cantidad = f"Cantidad (múltiplos de {step_final} unidades)"
-                ayuda_extra = f" (caja mínima de {step_final} unidades)"
             else:
                 label_cantidad = "Cantidad (unidades sueltas)"
-                ayuda_extra = ""
 
         cantidad = col_qty.number_input(
             label_cantidad,
@@ -535,41 +525,58 @@ if not df_filtrado.empty:
         )
 
         if ayuda_cantidad:
-            st.caption(ayuda_cantidad + (ayuda_extra if ayuda_extra else ""))
+            st.caption(ayuda_cantidad)
 
         if col_btn.button("➕ Agregar al Carrito", use_container_width=True):
             if cantidad <= 0:
                 st.error("La cantidad debe ser mayor a 0.")
             else:
-                # Validar que la cantidad sea múltiplo del step (solo si step > 1 y min_val > 0)
                 if step_final > 1 and min_val > 0:
                     if cantidad % step_final != 0:
                         st.error(f"La cantidad debe ser múltiplo de {step_final} (cajas completas).")
                         st.stop()
-                st.session_state.carrito.append({
-                    "Codigo": str(prod_data['Codigo']),
-                    "Descripcion": str(prod_data['Descripcion']),
-                    "Modelo": str(prod_data['Modelo']),
-                    "Marca": str(prod_data['Marca']),
-                    "Hoja_Origen": str(prod_data['Hoja_Origen']),
-                    "Herramienta": str(prod_data.get('Herramienta', '')) if pd.notna(prod_data.get('Herramienta')) else '',
-                    "Categoria_Generica": str(prod_data.get('Categoria_Generica', '')) if pd.notna(prod_data.get('Categoria_Generica')) else '',
-                    "Tipo_Alimentacion": str(prod_data.get('Tipo_Alimentacion', '')) if pd.notna(prod_data.get('Tipo_Alimentacion')) else '',
-                    "Cantidad": cantidad,
-                    "Precio_Unitario": precio_unitario_a_usar,
-                    "Es_Oferta": prod_data['Es_Oferta'],
-                    "IVA": prod_data['IVA'],
-                    "Subtotal_Bruto": precio_unitario_a_usar * cantidad,
-                    "Embalaje": str(prod_data.get('Embalaje', '')) if pd.notna(prod_data.get('Embalaje')) else '',
-                    "CantidadPorCaja": str(prod_data.get('CantidadPorCaja', '')) if pd.notna(prod_data.get('CantidadPorCaja')) else '',
-                    "UnidadPrecio": str(prod_data.get('UnidadPrecio', '')) if pd.notna(prod_data.get('UnidadPrecio')) else '',
-                    "Precio_Presentacion": precio_lote if not prod_data['Es_Oferta'] else prod_data['Precio_Oferta'],
-                    "Tipo_Cantidad": tipo_cantidad,
-                    "Cantidad_Por_Lote": cantidad_por_lote,
-                    "Step": step_final,  # guardar para edición en carrito
-                    "Min_Value": min_val
-                })
-                st.success(f"¡Agregado: {cantidad}x {prod_data['Codigo']}!")
+
+                # NUEVO: Verificar si ya existe el mismo producto con la misma presentación
+                existing_index = None
+                for idx, item in enumerate(st.session_state.carrito):
+                    if (item['Codigo'] == str(prod_data['Codigo']) and
+                        item.get('Embalaje') == str(prod_data.get('Embalaje', '')) and
+                        item.get('CantidadPorCaja') == str(prod_data.get('CantidadPorCaja', '')) and
+                        item.get('UnidadPrecio') == str(prod_data.get('UnidadPrecio', ''))):
+                        existing_index = idx
+                        break
+
+                if existing_index is not None:
+                    # Sumar cantidad
+                    st.session_state.carrito[existing_index]['Cantidad'] += cantidad
+                    st.session_state.carrito[existing_index]['Subtotal_Bruto'] = st.session_state.carrito[existing_index]['Precio_Unitario'] * st.session_state.carrito[existing_index]['Cantidad']
+                    st.success(f"¡Cantidad actualizada! {st.session_state.carrito[existing_index]['Codigo']} ahora tiene {st.session_state.carrito[existing_index]['Cantidad']} unidades.")
+                else:
+                    # Crear nuevo ítem
+                    st.session_state.carrito.append({
+                        "Codigo": str(prod_data['Codigo']),
+                        "Descripcion": str(prod_data['Descripcion']),
+                        "Modelo": str(prod_data['Modelo']),
+                        "Marca": str(prod_data['Marca']),
+                        "Hoja_Origen": str(prod_data['Hoja_Origen']),
+                        "Herramienta": str(prod_data.get('Herramienta', '')) if pd.notna(prod_data.get('Herramienta')) else '',
+                        "Categoria_Generica": str(prod_data.get('Categoria_Generica', '')) if pd.notna(prod_data.get('Categoria_Generica')) else '',
+                        "Tipo_Alimentacion": str(prod_data.get('Tipo_Alimentacion', '')) if pd.notna(prod_data.get('Tipo_Alimentacion')) else '',
+                        "Cantidad": cantidad,
+                        "Precio_Unitario": precio_unitario_a_usar,
+                        "Es_Oferta": prod_data['Es_Oferta'],
+                        "IVA": prod_data['IVA'],
+                        "Subtotal_Bruto": precio_unitario_a_usar * cantidad,
+                        "Embalaje": str(prod_data.get('Embalaje', '')) if pd.notna(prod_data.get('Embalaje')) else '',
+                        "CantidadPorCaja": str(prod_data.get('CantidadPorCaja', '')) if pd.notna(prod_data.get('CantidadPorCaja')) else '',
+                        "UnidadPrecio": str(prod_data.get('UnidadPrecio', '')) if pd.notna(prod_data.get('UnidadPrecio')) else '',
+                        "Precio_Presentacion": precio_lote if not prod_data['Es_Oferta'] else prod_data['Precio_Oferta'],
+                        "Tipo_Cantidad": tipo_cantidad,
+                        "Cantidad_Por_Lote": cantidad_por_lote,
+                        "Step": step_final,
+                        "Min_Value": min_val
+                    })
+                    st.success(f"¡Agregado: {cantidad}x {prod_data['Codigo']}!")
 else:
     st.info("No se encontraron productos con esa búsqueda.")
 
@@ -591,12 +598,14 @@ if st.session_state.carrito:
                 min_val = st.session_state.carrito[index].get('Min_Value', 0)
                 if step > 1 and min_val > 0:
                     if new_cantidad % step != 0:
-                        st.warning(f"La cantidad debe ser múltiplo de {step}. Se ajustará al múltiplo inferior más cercano.")
+                        # Ajustar al múltiplo inferior más cercano
                         new_cantidad = (new_cantidad // step) * step
                         if new_cantidad == 0:
                             st.session_state.carrito.pop(index)
                             st.rerun()
                             return
+                        # Mostrar mensaje de advertencia
+                        st.warning(f"La cantidad se ajustó a {new_cantidad} (múltiplo de {step}).")
                 st.session_state.carrito[index]['Cantidad'] = new_cantidad
                 st.session_state.carrito[index]['Subtotal_Bruto'] = st.session_state.carrito[index]['Precio_Unitario'] * new_cantidad
         else:
@@ -625,11 +634,14 @@ if st.session_state.carrito:
             with col3:
                 st.write(f"${item['Precio_Unitario']:,.2f}")
             with col4:
+                # MODIFICADO: usar step y min_value del ítem
+                step = item.get('Step', 1)
+                min_val = item.get('Min_Value', 0)
                 new_qty = st.number_input(
                     "Cant.",
                     min_value=0,
                     value=int(item['Cantidad']),
-                    step=1,
+                    step=int(step) if step >= 1 else 1,
                     key=f"qty_{i}",
                     label_visibility="collapsed"
                 )
