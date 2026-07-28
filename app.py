@@ -316,32 +316,59 @@ except Exception as e:
     st.stop()
 
 # ------------------------------------------------------------
-# CONSTRUCCIÓN DE FILTROS POR MARCA (con verificaciones)
+# CONSTRUCCIÓN DE FILTROS POR MARCA (con verificaciones robustas)
 # ------------------------------------------------------------
 def build_filtros_config(df):
     config = {}
-    # Verificar que 'Marca' existe en el DataFrame
+    # Verificar que exista la columna 'Marca'
     if 'Marca' not in df.columns:
         return config
 
-    # Solo construir filtros si las columnas requeridas existen y tienen datos
-    if 'Categoria_Generica' in df.columns and df['Categoria_Generica'].notna().any():
-        config["Einhell"] = {
-            "Categoria_Generica": {"label": "Categoría", "options": sorted(df[df['Marca'] == "Einhell"]['Categoria_Generica'].dropna().unique())},
-            "Tipo_Alimentacion": {"label": "Alimentación", "options": sorted(df[df['Marca'] == "Einhell"]['Tipo_Alimentacion'].dropna().unique())}
-        }
-    if 'Embalaje' in df.columns and df['Embalaje'].notna().any():
-        config["Fijaciones"] = {
-            "Embalaje": {"label": "Embalaje", "options": sorted(df[df['Marca'] == "Fijaciones"]['Embalaje'].dropna().unique())}
-        }
-    if 'Hoja_Origen' in df.columns and df['Hoja_Origen'].notna().any():
-        config["KWB"] = {
-            "Hoja_Origen": {"label": "Hoja de origen", "options": sorted(df[df['Marca'] == "KWB"]['Hoja_Origen'].dropna().unique())}
-        }
-    if 'Color' in df.columns and df['Color'].notna().any():
-        config["Penosil"] = {
-            "Color": {"label": "Color", "options": sorted(df[df['Marca'] == "Penosil"]['Color'].dropna().unique())}
-        }
+    # Einhell
+    try:
+        if 'Categoria_Generica' in df.columns and df['Categoria_Generica'].notna().any():
+            sub_df = df[df['Marca'] == "Einhell"]
+            if not sub_df.empty and 'Categoria_Generica' in sub_df.columns and sub_df['Categoria_Generica'].notna().any():
+                config["Einhell"] = {
+                    "Categoria_Generica": {"label": "Categoría", "options": sorted(sub_df['Categoria_Generica'].dropna().unique())},
+                    "Tipo_Alimentacion": {"label": "Alimentación", "options": sorted(sub_df['Tipo_Alimentacion'].dropna().unique())}
+                }
+    except:
+        pass
+
+    # Fijaciones
+    try:
+        if 'Embalaje' in df.columns and df['Embalaje'].notna().any():
+            sub_df = df[df['Marca'] == "Fijaciones"]
+            if not sub_df.empty and 'Embalaje' in sub_df.columns and sub_df['Embalaje'].notna().any():
+                config["Fijaciones"] = {
+                    "Embalaje": {"label": "Embalaje", "options": sorted(sub_df['Embalaje'].dropna().unique())}
+                }
+    except:
+        pass
+
+    # KWB
+    try:
+        if 'Hoja_Origen' in df.columns and df['Hoja_Origen'].notna().any():
+            sub_df = df[df['Marca'] == "KWB"]
+            if not sub_df.empty and 'Hoja_Origen' in sub_df.columns and sub_df['Hoja_Origen'].notna().any():
+                config["KWB"] = {
+                    "Hoja_Origen": {"label": "Hoja de origen", "options": sorted(sub_df['Hoja_Origen'].dropna().unique())}
+                }
+    except:
+        pass
+
+    # Penosil
+    try:
+        if 'Color' in df.columns and df['Color'].notna().any():
+            sub_df = df[df['Marca'] == "Penosil"]
+            if not sub_df.empty and 'Color' in sub_df.columns and sub_df['Color'].notna().any():
+                config["Penosil"] = {
+                    "Color": {"label": "Color", "options": sorted(sub_df['Color'].dropna().unique())}
+                }
+    except:
+        pass
+
     return config
 
 FILTROS_CONFIG = build_filtros_config(df_productos)
