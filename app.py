@@ -599,4 +599,614 @@ if not df_filtrado.empty:
             if pd.notna(prod_data.get('CantidadPorCaja')):
                 extra_info.append(f"**Cant. por unidad de venta:** {prod_data['CantidadPorCaja']}")
             if pd.notna(prod_data.get('UnidadPrecio')):
-                extra_info.append(f)
+                extra_info.append(f"**Unidad de precio:** {prod_data['UnidadPrecio']}")
+            if extra_info:
+                st.markdown("**Datos de empaque:** " + " | ".join(extra_info))
+
+            st.markdown("---")
+            st.markdown(f"**Unidad de venta:** {info['unidad_venta']}")
+            if info['tipo_cantidad'] == 'lotes':
+                st.markdown(f"**Precio por {info['unidad_venta']}:** {fmt_currency(info['precio_lote'])}")
+                st.markdown(f"**Cada {info['unidad_venta']} contiene:** {info['cantidad_por_lote']} unidades")
+                st.markdown(f"**Precio unitario (referencia):** {fmt_currency(info['precio_lote'] / info['cantidad_por_lote'])}")
+            else:
+                st.markdown(f"**Precio unitario:** {fmt_currency(info['precio_unitario'])}")
+                st.markdown(f"**Presentación de:** {info['cantidad_por_lote']} unidades ({fmt_currency(info['precio_lote'])})")
+                if info['step'] > 1:
+                    st.info(f"📦 Venta en cajas de {info['step']} unidades. La cantidad debe ser múltiplo de {info['step']}.")
+
+            precio_oferta = prod_data['Precio_Oferta'] if prod_data['Es_Oferta'] else None
+            if prod_data['Es_Oferta']:
+                st.markdown(f"**Precio de oferta:** {fmt_currency(precio_oferta)} por unidad")
+            if prod_data.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(prod_data['Hoja_Origen']).upper():
+                st.info("🔋 Este producto es de la hoja BATERÍAS Y CARGADORES y no recibe descuentos adicionales.")
+
+        if prod_data['Es_Oferta']:
+            precio_unitario_a_usar = prod_data['Precio_Oferta']
+        else:
+            precio_unitario_a_usar = info['precio_unitario']
+
+        step = info['step']
+        min_val = info['min_value']
+        valor_inicial = step if step > 1 else 1.0
+
+        if info['tipo_cantidad'] == 'lotes':
+            label_cantidad = f"Cantidad ({info['unidad_venta']})"
+            ayuda_extra = f" (1 {info['unidad_venta']} = {info['cantidad_por_lote']} unidades)"
+        else:
+            if step > 1:
+                label_cantidad = f"Cantidad (múltiplos de {step})"
+                ayuda_extra = f" (caja de {step} unidades)"
+            else:
+                label_cantidad = "Cantidad (unidades sueltas)"
+                ayuda_extra = ""
+
+        cantidad = col_qty.number_input(
+            label_cantidad,
+            min_value=min_val,
+            value=valor_inicial,
+            step=step,
+            format="%g"
+        )
+
+        if info['ayuda']:
+            st.caption(info['ayuda'] + (ayuda_extra if ayuda_extra else ""))
+
+        if col_btn.button("➕ Agregar al Carrito", use_container_width=True):
+            if cantidad <= 0:
+                st.error("La cantidad debe ser mayor a 0.")
+            else:
+                if step > 1 and min_val > 0:
+                    if cantidad % step != 0:
+                        st.error(f"La cantidad debe ser múltiplo de {step} (cajas completas).")
+                        st.stop()
+
+                clave_presentacion = f"{prod_data['Codigo']}_{prod_data.get('Embalaje', '')}_{prod_data.get('CantidadPorCaja', '')}_{prod_data.get('UnidadPrecio', '')}"
+
+                item_existente = None
+                for idx, item in enumerate(st.session_state.carrito):
+                    if item.get('Clave_Presentacion') == clave_presentacion:
+                        item_existente = idx
+                        break
+
+                if item_existente is not None:
+                    st.session_state.carrito[item_existente]['Cantidad'] += cantidad
+                    st.session_state.carrito[item_existente]['Subtotal_Bruto'] = st.session_state.carrito[item_existente]['Precio_Unitario'] * st.session_state.carrito[item_existente]['Cantidad']
+                    st.success(f"¡Cantidad actualizada! +{cantidad} unidades (total: {st.session_state.carrito[item_existente]['Cantidad']})")
+                else:
+                    st.session_state.carrito.append({
+                        "Codigo": str(prod_data['Codigo']),
+                        "Descripcion": str(prod_data['Descripcion']),
+                        "Modelo": str(prod_data['Modelo']),
+                        "Marca": str(prod_data['Marca']),
+                        "Hoja_Origen": str(prod_data['Hoja_Origen']),
+                        "Herramienta": str(prod_data.get('Herramienta', '')) if pd.notna(prod_data.get('Herramienta')) else '',
+                        "Categoria_Generica": str(prod_data.get('Categoria_Generica', '')) if pd.notna(prod_data.get('Categoria_Generica')) else '',
+                        "Tipo_Alimentacion": str(prod_data.get('Tipo_Alimentacion', '')) if pd.notna(prod_data.get('Tipo_Alimentacion')) else '',
+                        "Cantidad": cantidad,
+                        "Precio_Unitario": precio_unitario_a_usar,
+                        "Es_Oferta": prod_data['Es_Oferta'],
+                        "IVA": prod_data['IVA'],
+                        "Subtotal_Bruto": precio_unitario_a_usar * cantidad,
+                        "Embalaje": str(prod_data.get('Embalaje', '')) if pd.notna(prod_data.get('Embalaje')) else '',
+                        "CantidadPorCaja": str(prod_data.get('CantidadPorCaja', '')) if pd.notna(prod_data.get('CantidadPorCaja')) else '',
+                        "UnidadPrecio": str(prod_data.get('UnidadPrecio', '')) if pd.notna(prod_data.get('UnidadPrecio')) else '',
+                        "Precio_Presentacion": info['precio_lote'],
+                        "Tipo_Cantidad": info['tipo_cantidad'],
+                        "Cantidad_Por_Lote": info['cantidad_por_lote'],
+                        "Step": info['step'],
+                        "Min_Value": info['min_value'],
+                        "Clave_Presentacion": clave_presentacion,
+                        "Presentacion_Text": info['presentacion_text'],
+                        "Unidad_Venta": info['unidad_venta']
+                    })
+                    st.success(f"¡Agregado: {cantidad}x {prod_data['Codigo']}!")
+else:
+    st.info("No se encontraron productos con esa búsqueda.")
+
+st.markdown("---")
+
+# ============================================================
+# 4. RESUMEN DEL PEDIDO
+# ============================================================
+st.subheader("3. Resumen del Pedido")
+
+if st.session_state.carrito:
+    def update_carrito(index, new_cantidad=None):
+        if new_cantidad is not None:
+            if new_cantidad <= 0:
+                st.session_state.carrito.pop(index)
+                st.rerun()
+                return
+            step = st.session_state.carrito[index].get('Step', 1)
+            min_val = st.session_state.carrito[index].get('Min_Value', 0)
+            if step > 1 and min_val > 0:
+                if new_cantidad % step != 0:
+                    new_cantidad = ((new_cantidad + step - 1) // step) * step
+                    st.warning(f"La cantidad se ajustó a {new_cantidad} (múltiplo de {step})")
+            st.session_state.carrito[index]['Cantidad'] = new_cantidad
+            st.session_state.carrito[index]['Subtotal_Bruto'] = st.session_state.carrito[index]['Precio_Unitario'] * new_cantidad
+        else:
+            st.session_state.carrito.pop(index)
+        st.rerun()
+
+    def is_discount_applicable(row):
+        if row['Es_Oferta']:
+            return False
+        if row.get('Hoja_Origen') and "BATERÍAS Y CARGADORES" in str(row['Hoja_Origen']).upper():
+            return False
+        return True
+
+    def calcular_neto(row, multiplicador):
+        if is_discount_applicable(row):
+            return row['Subtotal_Bruto'] * multiplicador
+        return row['Subtotal_Bruto']
+
+    st.markdown("#### Bonificaciones y Cierre")
+    col_desc1, col_desc2, col_desc3, _ = st.columns([1, 1, 1, 2])
+
+    desc_gen = col_desc1.number_input("Desc. General (%)", min_value=0.0, max_value=100.0, value=30.0, step=1.0)
+    desc_ad1 = col_desc2.number_input("Desc. Adicional 1 (%)", min_value=0.0, max_value=100.0, value=0.0, step=1.0)
+    desc_ad2 = col_desc3.number_input("Desc. Adicional 2 (%)", min_value=0.0, max_value=100.0, value=0.0, step=1.0)
+
+    multiplicador_desc = (1 - (desc_gen / 100)) * (1 - (desc_ad1 / 100)) * (1 - (desc_ad2 / 100))
+    descuentos_usados = [f"-{d}%" for d in [desc_gen, desc_ad1, desc_ad2] if d > 0]
+    texto_descuentos = " ".join(descuentos_usados) if descuentos_usados else "Sin bonificación"
+
+    df_carrito = pd.DataFrame(st.session_state.carrito)
+
+    df_carrito['Neto_Calculado'] = df_carrito.apply(lambda row: calcular_neto(row, multiplicador_desc), axis=1)
+    df_carrito['Monto_Descuento'] = df_carrito['Subtotal_Bruto'] - df_carrito['Neto_Calculado']
+    df_carrito['Monto_IVA'] = df_carrito['Neto_Calculado'] * df_carrito['IVA']
+
+    total_bruto = df_carrito['Subtotal_Bruto'].sum()
+    total_neto = df_carrito['Neto_Calculado'].sum()
+    total_iva = df_carrito['Monto_IVA'].sum()
+    total_final = total_neto + total_iva
+    total_descuento = total_bruto - total_neto
+
+    # Resumen General
+    st.markdown("#### 📊 Resumen General")
+    col_kpi1, col_kpi2, col_kpi3, col_kpi4, col_kpi5 = st.columns(5)
+    col_kpi1.metric("Subtotal Bruto", fmt_currency(total_bruto))
+    col_kpi2.metric(f"Descuentos ({texto_descuentos})", fmt_currency(total_descuento))
+    col_kpi3.metric("Neto", fmt_currency(total_neto))
+    col_kpi4.metric("IVA Total", fmt_currency(total_iva))
+    col_kpi5.metric("Total Final", fmt_currency(total_final), delta=None)
+
+    st.markdown("---")
+
+    # Tabla de productos
+    st.markdown("#### 📋 Detalle de Productos")
+    base_cols = ['Codigo', 'Marca', 'Modelo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'IVA', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado', 'Monto_IVA', 'Es_Oferta']
+    extra_cols = []
+    if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
+        extra_cols.extend(['Embalaje', 'CantidadPorCaja', 'UnidadPrecio'])
+    if extra_cols:
+        idx = base_cols.index('Descripcion') + 1
+        cols_mostrar = base_cols[:idx] + extra_cols + base_cols[idx:]
+    else:
+        cols_mostrar = base_cols
+    cols_mostrar = [col for col in cols_mostrar if col in df_carrito.columns]
+
+    df_mostrar = df_carrito[cols_mostrar].copy()
+    numeric_cols = ['Precio_Unitario', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado', 'Monto_IVA']
+    for col in numeric_cols:
+        if col in df_mostrar.columns:
+            df_mostrar[col] = df_mostrar[col].apply(fmt_currency)
+    if 'IVA' in df_mostrar.columns:
+        df_mostrar['IVA'] = df_mostrar.apply(lambda row: format_iva(row['IVA'], row['Es_Oferta']), axis=1)
+    if 'Es_Oferta' in df_mostrar.columns:
+        df_mostrar['Es_Oferta'] = df_mostrar['Es_Oferta'].apply(lambda x: "🔥 Oferta" if x else "")
+
+    st.dataframe(df_mostrar, use_container_width=True)
+
+    st.markdown("---")
+
+    # Resumen por marca
+    st.markdown("#### 📦 Resumen por Marca")
+    marcas_unicas = sorted(df_carrito['Marca'].unique())
+    marca_data = []
+    for marca in marcas_unicas:
+        mask = df_carrito['Marca'] == marca
+        subset = df_carrito[mask]
+        bruto = subset['Subtotal_Bruto'].sum()
+        neto = subset['Neto_Calculado'].sum()
+        iva = subset['Monto_IVA'].sum()
+        desc = bruto - neto
+        final = neto + iva
+        items = len(subset)
+        ofertas = subset[subset['Es_Oferta'] == True]['Codigo'].tolist()
+        marca_data.append({
+            'Marca': marca,
+            'Items': items,
+            'Bruto': bruto,
+            'Descuento': desc,
+            'Neto': neto,
+            'IVA': iva,
+            'Total': final,
+            'Ofertas': ", ".join(ofertas) if ofertas else "Ninguna"
+        })
+
+    df_marca = pd.DataFrame(marca_data)
+    for col in ['Bruto', 'Descuento', 'Neto', 'IVA', 'Total']:
+        df_marca[col] = df_marca[col].apply(fmt_currency)
+    st.dataframe(df_marca, use_container_width=True)
+
+    st.markdown("---")
+
+    # Totales finales
+    col_tot1, col_tot2, col_tot3, col_tot4, col_tot5 = st.columns(5)
+    col_tot1.metric("Subtotal Bruto", fmt_currency(total_bruto))
+    col_tot2.metric(f"Descuentos ({texto_descuentos})", fmt_currency(total_descuento))
+    col_tot3.metric("Neto", fmt_currency(total_neto))
+    col_tot4.metric("IVA Total", fmt_currency(total_iva))
+    col_tot5.metric("TOTAL FINAL", fmt_currency(total_final), delta=None, delta_color="inverse")
+
+    st.markdown("---")
+
+    # Botones
+    col_btn1, col_btn2 = st.columns(2)
+
+    with col_btn1:
+        if st.button("🗑️ Vaciar Carrito", use_container_width=True):
+            st.session_state.carrito = []
+            st.rerun()
+
+    with col_btn2:
+        if st.button("📄 Generar PDF del Pedido", type="primary", use_container_width=True):
+            if cliente_seleccionado is None:
+                st.error("Debes seleccionar un cliente antes de generar el PDF.")
+                st.stop()
+
+            # ----------------------------------------------------------------------
+            # GENERACIÓN DE PDF PROFESIONAL – CON TABLA ESTRUCTURADA
+            # ----------------------------------------------------------------------
+
+            # --- Configuración general ---
+            pdf = FPDF()
+            pdf.set_auto_page_break(auto=True, margin=15)
+            pdf.set_margins(left=12, top=12, right=12)
+            pdf.add_page()
+
+            # Constantes
+            MARGIN_LEFT = 12
+            PAGE_WIDTH = 186  # 210 - 24
+            FONT_SIZE = 7
+            FONT_SIZE_SMALL = 6
+            FONT_SIZE_TITLE = 20
+            FONT_SIZE_SUBTITLE = 11
+            FONT_SIZE_TOTAL = 16
+            GRAY_TEXT = (80, 80, 80)
+            LIGHT_GRAY = (245, 245, 245)
+
+            # --- FUNCIÓN PARA TRUNCAR DESCRIPCIÓN A MÁXIMO 2 LÍNEAS ---
+            def truncate_description(texto, max_lines=2, max_width=PAGE_WIDTH - 8):
+                """Trunca texto a máximo 2 líneas respetando palabras completas."""
+                if not texto:
+                    return ""
+                palabras = texto.split()
+                lineas = []
+                linea_actual = ""
+                for palabra in palabras:
+                    if pdf.get_string_width(linea_actual + " " + palabra if linea_actual else palabra) <= max_width:
+                        linea_actual = (linea_actual + " " + palabra) if linea_actual else palabra
+                    else:
+                        lineas.append(linea_actual)
+                        linea_actual = palabra
+                        if len(lineas) >= max_lines:
+                            return " ".join(lineas) + "..."
+                if linea_actual:
+                    lineas.append(linea_actual)
+                return " ".join(lineas[:max_lines]) + ("..." if len(lineas) > max_lines else "")
+
+            # --- FUNCIONES DE DIBUJO ---
+
+            def draw_title():
+                pdf.set_font("Arial", 'B', FONT_SIZE_TITLE)
+                pdf.set_text_color(0, 0, 0)
+                pdf.cell(0, 14, sanitize_text("PROFORMA DE PEDIDO"), ln=True, align='C')
+                pdf.ln(4)
+
+            def draw_separator_line():
+                pdf.set_draw_color(200, 200, 200)
+                pdf.line(MARGIN_LEFT, pdf.get_y(), MARGIN_LEFT + PAGE_WIDTH, pdf.get_y())
+
+            def draw_client_block():
+                pdf.set_font("Arial", 'B', 11)
+                pdf.set_text_color(0, 0, 0)
+                codigo_cliente = cli_info.get('CODIGO') or cli_info.get('Código') or cli_info.get('Codigo')
+                if codigo_cliente and pd.notna(codigo_cliente):
+                    pdf.cell(0, 8, sanitize_text(f"Cliente: {cliente_seleccionado} (Código: {codigo_cliente})"), ln=True)
+                else:
+                    pdf.cell(0, 8, sanitize_text(f"Cliente: {cliente_seleccionado}"), ln=True)
+
+                pdf.set_font("Arial", '', 10)
+                pdf.cell(0, 7, sanitize_text(f"CUIT: {cli_info.get('C.U.I.T.', '-')} | Condicion: {cli_info.get('FORMA DE PAGO', '-')}"), ln=True)
+
+                direccion_cliente = cli_info.get('Dirección') or cli_info.get('DOMICILIO') or cli_info.get('Domicilio')
+                if direccion_cliente and pd.notna(direccion_cliente):
+                    pdf.cell(0, 7, sanitize_text(f"Direccion: {direccion_cliente}"), ln=True)
+
+                pdf.cell(0, 7, sanitize_text(f"Vendedor: {cli_info.get('NOMB.VENDEDOR', '-')}"), ln=True)
+
+                if retira_local:
+                    pdf.cell(0, 7, sanitize_text("Entrega: El cliente retira en el local"), ln=True)
+                elif direccion_entrega:
+                    pdf.cell(0, 7, sanitize_text(f"Direccion de entrega: {direccion_entrega}"), ln=True)
+                else:
+                    pdf.cell(0, 7, sanitize_text("Entrega: En direccion del cliente (sin especificar)"), ln=True)
+
+                pdf.cell(0, 7, sanitize_text(f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}"), ln=True)
+                pdf.ln(10)
+
+            def draw_brand_header(marca, color_rgb, count):
+                pdf.set_font("Arial", 'B', FONT_SIZE_SUBTITLE)
+                pdf.set_text_color(color_rgb[0], color_rgb[1], color_rgb[2])
+                pdf.cell(0, 10, sanitize_text(f"- {marca} ({count} productos)"), ln=True)
+                pdf.set_text_color(0, 0, 0)
+                pdf.ln(4)
+
+            def draw_table_header(es_einhell, color_rgb):
+                pdf.set_font("Arial", 'B', FONT_SIZE)
+                pdf.set_fill_color(color_rgb[0], color_rgb[1], color_rgb[2])
+                pdf.set_text_color(255, 255, 255)
+                pdf.set_x(MARGIN_LEFT)
+
+                # Anchos distribuidos (total 186 mm)
+                if es_einhell:
+                    widths = [13, 13, 40, 8, 17, 10, 20, 14, 19, 15]
+                    headers = ["Codigo", "Marca", "Herramienta", "Cant", "P.Unit", "IVA%", "Subtotal", "Desc.", "Neto", "IVA"]
+                else:
+                    widths = [13, 13, 38, 8, 17, 10, 20, 14, 19, 15]
+                    headers = ["Codigo", "Marca", "Modelo", "Cant", "P.Unit", "IVA%", "Subtotal", "Desc.", "Neto", "IVA"]
+
+                for i, h in enumerate(headers):
+                    pdf.cell(widths[i], 9, sanitize_text(h), border=0, align='C', fill=True)
+                pdf.ln()
+                pdf.set_text_color(0, 0, 0)
+                pdf.set_fill_color(255, 255, 255)
+
+            def draw_product_row(row, es_einhell, widths):
+                """Dibuja un producto: fila principal + descripción secundaria (una sola vez, debajo)."""
+                # Datos principales
+                codigo = sanitize_text(str(row['Codigo']))[:12]
+                marca_text = sanitize_text(str(row['Marca']))[:12]
+                cant = str(int(row['Cantidad'])) if row['Cantidad'].is_integer() else f"{row['Cantidad']:.1f}"
+                p_unit = fmt_currency(row['Precio_Unitario'])
+                iva_text = format_iva(row['IVA'], row['Es_Oferta'])
+                subtotal = fmt_currency(row['Subtotal_Bruto'])
+                descuento = fmt_currency(row['Monto_Descuento'])
+                neto = fmt_currency(row['Neto_Calculado'])
+                iva_monto = fmt_currency(row['Monto_IVA'])
+
+                # Preparar el texto de descripción (sin duplicar, una sola vez)
+                if es_einhell:
+                    desc_text = sanitize_text(str(row.get('Descripcion', ''))).strip()
+                    if row['Es_Oferta']:
+                        desc_text = "OFERTA " + desc_text
+                    alimentacion = str(row.get('Tipo_Alimentacion', ''))
+                    if alimentacion and alimentacion not in ("No especificado", "nan", "None", ""):
+                        desc_text += f" ({alimentacion})"
+                else:
+                    desc_text = sanitize_text(str(row.get('Descripcion', ''))).strip()
+                    if row['Es_Oferta']:
+                        desc_text = "OFERTA " + desc_text
+                    emb = sanitize_text(str(row.get('Embalaje', ''))).strip()
+                    caja = sanitize_text(str(row.get('CantidadPorCaja', ''))).strip()
+                    unidad = sanitize_text(str(row.get('UnidadPrecio', ''))).strip()
+                    if emb or caja or unidad:
+                        desc_text += f" | {emb} {caja} {unidad}".strip()
+
+                # Limpiar valores "nan"
+                if desc_text in ("nan", "None", ""):
+                    desc_text = ""
+
+                # Truncar descripción a máximo 2 líneas
+                desc_text = truncate_description(desc_text, max_lines=2)
+
+                # --- 1. Dibujar la fila principal ---
+                pdf.set_x(MARGIN_LEFT)
+                pdf.set_font("Arial", '', FONT_SIZE)
+                pdf.set_text_color(0, 0, 0)
+                pdf.set_fill_color(255, 255, 255)
+
+                # Altura fija de 6mm para la fila principal
+                row_height = 6
+
+                if es_einhell:
+                    herramienta = sanitize_text(str(row.get('Herramienta', '')))[:38]
+                    pdf.cell(widths[0], row_height, codigo, border=0, align='L')
+                    pdf.cell(widths[1], row_height, marca_text, border=0, align='L')
+                    pdf.cell(widths[2], row_height, herramienta, border=0, align='L')
+                    pdf.cell(widths[3], row_height, cant, border=0, align='C')
+                    pdf.cell(widths[4], row_height, p_unit, border=0, align='R')
+                    pdf.cell(widths[5], row_height, iva_text, border=0, align='C')
+                    pdf.cell(widths[6], row_height, subtotal, border=0, align='R')
+                    pdf.cell(widths[7], row_height, descuento, border=0, align='R')
+                    pdf.cell(widths[8], row_height, neto, border=0, align='R')
+                    pdf.cell(widths[9], row_height, iva_monto, border=0, align='R')
+                else:
+                    modelo = sanitize_text(str(row.get('Modelo', '')))[:36]
+                    pdf.cell(widths[0], row_height, codigo, border=0, align='L')
+                    pdf.cell(widths[1], row_height, marca_text, border=0, align='L')
+                    pdf.cell(widths[2], row_height, modelo, border=0, align='L')
+                    pdf.cell(widths[3], row_height, cant, border=0, align='C')
+                    pdf.cell(widths[4], row_height, p_unit, border=0, align='R')
+                    pdf.cell(widths[5], row_height, iva_text, border=0, align='C')
+                    pdf.cell(widths[6], row_height, subtotal, border=0, align='R')
+                    pdf.cell(widths[7], row_height, descuento, border=0, align='R')
+                    pdf.cell(widths[8], row_height, neto, border=0, align='R')
+                    pdf.cell(widths[9], row_height, iva_monto, border=0, align='R')
+                pdf.ln()
+
+                # --- 2. Imprimir la descripción secundaria (si existe) debajo de la fila ---
+                if desc_text:
+                    # Movemos el cursor a la izquierda
+                    pdf.set_x(MARGIN_LEFT)
+                    # Fondo gris claro para la descripción
+                    pdf.set_fill_color(LIGHT_GRAY[0], LIGHT_GRAY[1], LIGHT_GRAY[2])
+                    pdf.set_text_color(GRAY_TEXT[0], GRAY_TEXT[1], GRAY_TEXT[2])
+                    pdf.set_font("Arial", '', FONT_SIZE_SMALL)
+                    # Imprimir la descripción con MultiCell (ocupando todo el ancho)
+                    pdf.multi_cell(PAGE_WIDTH, 4, desc_text, border=0, align='L', fill=True)
+                    pdf.set_text_color(0, 0, 0)
+                    pdf.set_fill_color(255, 255, 255)
+
+                # --- 3. Espacio entre productos (6 mm) ---
+                pdf.set_x(MARGIN_LEFT)
+                pdf.cell(0, 6, "", border=0)
+
+            def draw_subtotal_block(marca, bruto, descuento, neto, iva, total):
+                pdf.set_draw_color(200, 200, 200)
+                pdf.line(MARGIN_LEFT, pdf.get_y(), MARGIN_LEFT + PAGE_WIDTH, pdf.get_y())
+                pdf.ln(2)
+
+                pdf.set_fill_color(LIGHT_GRAY[0], LIGHT_GRAY[1], LIGHT_GRAY[2])
+                pdf.rect(MARGIN_LEFT, pdf.get_y(), PAGE_WIDTH, 24, 'F')
+                pdf.set_y(pdf.get_y() + 2)
+
+                pdf.set_font("Arial", 'B', 9)
+                pdf.set_text_color(0, 0, 0)
+                pdf.set_x(MARGIN_LEFT + 4)
+                pdf.cell(0, 6, sanitize_text(f"Subtotal {marca}"), ln=True)
+
+                pdf.set_font("Arial", '', 7)
+                pdf.set_x(MARGIN_LEFT + 4)
+                labels = ["Bruto", "Descuento", "Neto", "IVA", "TOTAL"]
+                values = [bruto, descuento, neto, iva, total]
+                for lbl, val in zip(labels, values):
+                    pdf.cell(35, 5, sanitize_text(f"{lbl}: {fmt_currency(val)}"), border=0, align='L')
+                pdf.ln()
+                pdf.set_y(pdf.get_y() + 2)
+                pdf.ln(4)
+
+            def draw_final_summary(total_bruto, total_descuento, total_neto, total_iva, total_final, texto_descuentos):
+                pdf.ln(8)
+                pdf.set_font("Arial", 'B', 10)
+                pdf.set_text_color(0, 0, 0)
+                pdf.cell(0, 8, sanitize_text(f"Descuentos aplicados: {texto_descuentos}"), ln=True)
+                pdf.ln(4)
+
+                pdf.set_fill_color(LIGHT_GRAY[0], LIGHT_GRAY[1], LIGHT_GRAY[2])
+                pdf.rect(MARGIN_LEFT, pdf.get_y(), PAGE_WIDTH, 42, 'F')
+                pdf.set_y(pdf.get_y() + 4)
+
+                pdf.set_font("Arial", 'B', 10)
+                pdf.set_text_color(0, 0, 0)
+                pdf.set_x(MARGIN_LEFT + 4)
+                pdf.cell(100, 8, "Subtotal Bruto (Sin Descuentos):", border=0, align='R')
+                pdf.cell(80, 8, fmt_currency(total_bruto), border=0, align='R')
+                pdf.ln()
+
+                pdf.set_font("Arial", '', 10)
+                pdf.cell(100, 8, sanitize_text(f"Descuentos ({texto_descuentos}):"), border=0, align='R')
+                pdf.cell(80, 8, fmt_currency(total_descuento), border=0, align='R')
+                pdf.ln()
+
+                pdf.set_font("Arial", 'B', 10)
+                pdf.cell(100, 8, "Neto:", border=0, align='R')
+                pdf.cell(80, 8, fmt_currency(total_neto), border=0, align='R')
+                pdf.ln()
+
+                pdf.set_font("Arial", '', 10)
+                pdf.cell(100, 8, "IVA Total:", border=0, align='R')
+                pdf.cell(80, 8, fmt_currency(total_iva), border=0, align='R')
+                pdf.ln()
+
+                pdf.set_y(pdf.get_y() + 2)
+                draw_separator_line()
+                pdf.ln(4)
+
+                pdf.set_font("Arial", 'B', FONT_SIZE_TOTAL)
+                pdf.set_text_color(0, 0, 0)
+                pdf.cell(100, 12, "TOTAL FINAL:", border=0, align='R')
+                pdf.cell(80, 12, fmt_currency(total_final), border=0, align='R')
+                pdf.ln(10)
+
+            def draw_footer_notes():
+                pdf.set_font("Arial", 'I', 8)
+                pdf.set_text_color(80, 80, 80)
+                pdf.cell(0, 6, sanitize_text("(*) Los articulos marcados como OFERTA o de la hoja 'BATERIAS Y CARGADORES' no reciben descuentos adicionales."), ln=True)
+                pdf.ln(3)
+                pdf.set_font("Arial", 'B', 8)
+                pdf.set_text_color(0, 0, 0)
+                pdf.cell(0, 6, "Leyenda de colores por marca (encabezados):", ln=True)
+                pdf.set_font("Arial", '', 8)
+                for marca, hex_color in MARCAS_COLORS_HEX.items():
+                    pdf.set_text_color(0, 0, 0)
+                    pdf.cell(20, 5, sanitize_text(f"{marca}:"), border=0)
+                    color_name = {"#8B3232": "Rojo Oscuro Suave", "#CC5500": "Naranja", "#FF0000": "Rojo"}.get(hex_color, "Color")
+                    pdf.set_text_color(int(hex_color[1:3], 16), int(hex_color[3:5], 16), int(hex_color[5:7], 16))
+                    pdf.cell(20, 5, sanitize_text(color_name), border=0)
+                    pdf.ln(4)
+                pdf.set_text_color(0, 0, 0)
+
+            # ---- INICIO DE LA GENERACIÓN DEL PDF ----
+            draw_title()
+            draw_separator_line()
+            pdf.ln(4)
+            draw_client_block()
+
+            # ---- PROCESAR CADA MARCA ----
+            marcas_en_pedido = sorted(df_carrito['Marca'].unique())
+
+            for idx_marca, marca in enumerate(marcas_en_pedido):
+                subset = df_carrito[df_carrito['Marca'] == marca]
+                color_rgb = MARCAS_COLORS.get(marca, (100, 100, 100))
+                es_einhell = (marca == "Einhell")
+
+                if pdf.get_y() > 230 and idx_marca > 0:
+                    pdf.add_page()
+                    pdf.set_auto_page_break(auto=True, margin=15)
+
+                draw_brand_header(marca, color_rgb, len(subset))
+
+                # Definir anchos
+                if es_einhell:
+                    widths = [13, 13, 40, 8, 17, 10, 20, 14, 19, 15]
+                else:
+                    widths = [13, 13, 38, 8, 17, 10, 20, 14, 19, 15]
+
+                draw_table_header(es_einhell, color_rgb)
+
+                # Productos
+                for _, row in subset.iterrows():
+                    draw_product_row(row, es_einhell, widths)
+
+                # Subtotal de la marca
+                bruto_marca = subset['Subtotal_Bruto'].sum()
+                neto_marca = subset['Neto_Calculado'].sum()
+                iva_marca = subset['Monto_IVA'].sum()
+                desc_marca = bruto_marca - neto_marca
+                total_marca = neto_marca + iva_marca
+                draw_subtotal_block(marca, bruto_marca, desc_marca, neto_marca, iva_marca, total_marca)
+
+                # Espacio entre marcas
+                pdf.set_x(MARGIN_LEFT)
+                pdf.cell(0, 10, "", border=0)
+
+            # ---- RESÚMEN FINAL ----
+            draw_final_summary(total_bruto, total_descuento, total_neto, total_iva, total_final, texto_descuentos)
+
+            # ---- NOTAS Y LEYENDA ----
+            draw_footer_notes()
+
+            # ---- GUARDAR ----
+            fd, path = tempfile.mkstemp(suffix=".pdf")
+            try:
+                pdf.output(path)
+                with open(path, "rb") as f:
+                    pdf_bytes = f.read()
+                st.download_button(
+                    label="⬇️ Descargar PDF",
+                    data=pdf_bytes,
+                    file_name=f"Pedido_{sanitize_text(cliente_seleccionado[:20])}_{datetime.now().strftime('%Y%m%d')}.pdf",
+                    mime="application/pdf"
+                )
+                st.success("✅ PDF generado exitosamente.")
+            finally:
+                os.close(fd)
+
+else:
+    st.info("🛒 El carrito está vacío. Buscá un producto y agregalo al pedido.")
