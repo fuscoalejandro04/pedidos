@@ -866,7 +866,7 @@ if st.session_state.carrito:
                 st.stop()
 
             # ==================================================================
-            # GENERACIÓN DE PDF CON JERARQUÍA VISUAL DE 3 NIVELES
+            # GENERACIÓN DE PDF CON JERARQUÍA VISUAL DE 3 NIVELES (UNO DEBAJO DEL OTRO)
             # ==================================================================
 
             pdf = FPDF()
@@ -876,17 +876,16 @@ if st.session_state.carrito:
 
             MARGIN_LEFT = 15
             PAGE_WIDTH = 210 - 30
-            FONT_SIZE_LEVEL1 = 9   # Nivel 1 (Código, Marca, Herramienta/Modelo, Cant)
-            FONT_SIZE_LEVEL2 = 8   # Nivel 2 (Precios)
-            FONT_SIZE_LEVEL3 = 7   # Nivel 3 (Descripción)
+            FONT_SIZE_LEVEL1 = 9
+            FONT_SIZE_LEVEL2 = 8
+            FONT_SIZE_LEVEL3 = 7
             FONT_SIZE_TITLE = 20
             FONT_SIZE_TOTAL = 14
-            COLOR_LEVEL1 = (0, 0, 0)       # Negro
-            COLOR_LEVEL2 = (68, 68, 68)    # Gris oscuro
-            COLOR_LEVEL3 = (136, 136, 136) # Gris claro
+            COLOR_LEVEL1 = (0, 0, 0)
+            COLOR_LEVEL2 = (68, 68, 68)
+            COLOR_LEVEL3 = (136, 136, 136)
             DARK_GRAY = (40, 40, 40)
 
-            # Funciones de dibujo
             def draw_title():
                 pdf.set_x(MARGIN_LEFT + PAGE_WIDTH - 80)
                 pdf.set_font("Arial", 'B', FONT_SIZE_TITLE)
@@ -961,9 +960,8 @@ if st.session_state.carrito:
                 neto = fmt_currency(row['Neto_Calculado'])
                 iva_monto = fmt_currency(row['Monto_IVA'])
 
-                # --- Nivel 1 y 2 en la misma fila (con estilos diferenciados) ---
+                # ---- FILA 1: Nivel 1 (Código, Marca, Herramienta/Modelo, Cantidad) ----
                 pdf.set_x(MARGIN_LEFT)
-                # Nivel 1: Código, Marca, Herramienta/Modelo, Cantidad (negrita, color negro)
                 pdf.set_font("Arial", 'B', FONT_SIZE_LEVEL1)
                 pdf.set_text_color(COLOR_LEVEL1[0], COLOR_LEVEL1[1], COLOR_LEVEL1[2])
 
@@ -973,16 +971,38 @@ if st.session_state.carrito:
                     pdf.cell(widths[1], 6, marca_text, border=0, align='L')
                     pdf.cell(widths[2], 6, herramienta, border=0, align='L')
                     pdf.cell(widths[3], 6, cant, border=0, align='C')
+                    # Rellenar el resto de columnas vacías
+                    pdf.cell(widths[4], 6, "", border=0, align='R')
+                    pdf.cell(widths[5], 6, "", border=0, align='C')
+                    pdf.cell(widths[6], 6, "", border=0, align='R')
+                    pdf.cell(widths[7], 6, "", border=0, align='R')
+                    pdf.cell(widths[8], 6, "", border=0, align='R')
+                    pdf.cell(widths[9], 6, "", border=0, align='R')
                 else:
                     modelo = clean_text(str(row.get('Modelo', '')))[:38]
                     pdf.cell(widths[0], 6, codigo, border=0, align='L')
                     pdf.cell(widths[1], 6, marca_text, border=0, align='L')
                     pdf.cell(widths[2], 6, modelo, border=0, align='L')
                     pdf.cell(widths[3], 6, cant, border=0, align='C')
+                    pdf.cell(widths[4], 6, "", border=0, align='R')
+                    pdf.cell(widths[5], 6, "", border=0, align='C')
+                    pdf.cell(widths[6], 6, "", border=0, align='R')
+                    pdf.cell(widths[7], 6, "", border=0, align='R')
+                    pdf.cell(widths[8], 6, "", border=0, align='R')
+                    pdf.cell(widths[9], 6, "", border=0, align='R')
+                pdf.ln()
 
-                # Nivel 2: Precios (normal, color gris oscuro)
+                # ---- FILA 2: Nivel 2 (Precio Unitario, IVA%, Subtotal, Descuento, Neto, IVA) ----
+                pdf.set_x(MARGIN_LEFT)
                 pdf.set_font("Arial", '', FONT_SIZE_LEVEL2)
                 pdf.set_text_color(COLOR_LEVEL2[0], COLOR_LEVEL2[1], COLOR_LEVEL2[2])
+
+                # Las primeras 4 columnas las dejamos vacías (pertenecen al nivel 1)
+                pdf.cell(widths[0], 6, "", border=0, align='L')
+                pdf.cell(widths[1], 6, "", border=0, align='L')
+                pdf.cell(widths[2], 6, "", border=0, align='L')
+                pdf.cell(widths[3], 6, "", border=0, align='C')
+                # Ahora los datos del nivel 2
                 pdf.cell(widths[4], 6, p_unit, border=0, align='R')
                 pdf.cell(widths[5], 6, iva_text, border=0, align='C')
                 pdf.cell(widths[6], 6, subtotal, border=0, align='R')
@@ -991,7 +1011,7 @@ if st.session_state.carrito:
                 pdf.cell(widths[9], 6, iva_monto, border=0, align='R')
                 pdf.ln()
 
-                # --- Nivel 3: Descripción (cursiva, gris claro, tamaño pequeño) ---
+                # ---- FILA 3: Nivel 3 (Descripción) ----
                 desc_text = clean_text(str(row.get('Descripcion', '')))
                 if row['Es_Oferta']:
                     desc_text = "OFERTA " + desc_text
