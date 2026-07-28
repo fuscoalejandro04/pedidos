@@ -860,7 +860,7 @@ if st.session_state.carrito:
                 st.stop()
 
             # ----------------------------------------------------------------------
-            # NUEVA GENERACIÓN DE PDF – ESTILO ERP MODERNO (CORREGIDO)
+            # GENERACIÓN DE PDF PROFESIONAL – CON TABLA ESTRUCTURADA
             # ----------------------------------------------------------------------
 
             # --- Configuración general ---
@@ -871,7 +871,7 @@ if st.session_state.carrito:
 
             # Constantes
             MARGIN_LEFT = 12
-            PAGE_WIDTH = 210 - 24  # 186 mm
+            PAGE_WIDTH = 186  # 210 - 24
             FONT_SIZE = 7
             FONT_SIZE_SMALL = 6
             FONT_SIZE_TITLE = 20
@@ -880,7 +880,27 @@ if st.session_state.carrito:
             GRAY_TEXT = (80, 80, 80)
             LIGHT_GRAY = (245, 245, 245)
 
-            # --- FUNCIONES AUXILIARES ---
+            # --- FUNCIÓN PARA TRUNCAR DESCRIPCIÓN A MÁXIMO 2 LÍNEAS ---
+            def truncate_description(texto, max_lines=2, max_width=PAGE_WIDTH - 8):
+                """Trunca texto a máximo 2 líneas respetando palabras completas."""
+                if not texto:
+                    return ""
+                palabras = texto.split()
+                lineas = []
+                linea_actual = ""
+                for palabra in palabras:
+                    if pdf.get_string_width(linea_actual + " " + palabra if linea_actual else palabra) <= max_width:
+                        linea_actual = (linea_actual + " " + palabra) if linea_actual else palabra
+                    else:
+                        lineas.append(linea_actual)
+                        linea_actual = palabra
+                        if len(lineas) >= max_lines:
+                            return " ".join(lineas) + "..."
+                if linea_actual:
+                    lineas.append(linea_actual)
+                return " ".join(lineas[:max_lines]) + ("..." if len(lineas) > max_lines else "")
+
+            # --- FUNCIONES DE DIBUJO ---
 
             def draw_title():
                 pdf.set_font("Arial", 'B', FONT_SIZE_TITLE)
@@ -933,18 +953,14 @@ if st.session_state.carrito:
                 pdf.set_text_color(255, 255, 255)
                 pdf.set_x(MARGIN_LEFT)
 
-                # Definir anchos (distribución más generosa para Modelo/Herramienta)
-                # Total ancho = 186 mm
+                # Anchos distribuidos (total 186 mm)
                 if es_einhell:
-                    # Codigo(13), Marca(13), Herramienta(40), Cant(8), P.Unit(17), IVA%(10), Subtotal(20), Desc.(14), Neto(19), IVA(15)
                     widths = [13, 13, 40, 8, 17, 10, 20, 14, 19, 15]
                     headers = ["Codigo", "Marca", "Herramienta", "Cant", "P.Unit", "IVA%", "Subtotal", "Desc.", "Neto", "IVA"]
                 else:
-                    # Codigo(13), Marca(13), Modelo(38), Cant(8), P.Unit(17), IVA%(10), Subtotal(20), Desc.(14), Neto(19), IVA(15)
                     widths = [13, 13, 38, 8, 17, 10, 20, 14, 19, 15]
                     headers = ["Codigo", "Marca", "Modelo", "Cant", "P.Unit", "IVA%", "Subtotal", "Desc.", "Neto", "IVA"]
 
-                # Dibujar encabezados con altura 9 (más padding)
                 for i, h in enumerate(headers):
                     pdf.cell(widths[i], 9, sanitize_text(h), border=0, align='C', fill=True)
                 pdf.ln()
@@ -952,10 +968,10 @@ if st.session_state.carrito:
                 pdf.set_fill_color(255, 255, 255)
 
             def draw_product_row(row, es_einhell, widths):
-                """Dibuja un producto con dos líneas: principal + descripción, con altura dinámica."""
+                """Dibuja un producto: fila principal + descripción secundaria (una sola vez, debajo)."""
                 # Datos principales
-                codigo = sanitize_text(str(row['Codigo']))
-                marca_text = sanitize_text(str(row['Marca']))
+                codigo = sanitize_text(str(row['Codigo']))[:12]
+                marca_text = sanitize_text(str(row['Marca']))[:12]
                 cant = str(int(row['Cantidad'])) if row['Cantidad'].is_integer() else f"{row['Cantidad']:.1f}"
                 p_unit = fmt_currency(row['Precio_Unitario'])
                 iva_text = format_iva(row['IVA'], row['Es_Oferta'])
@@ -964,7 +980,7 @@ if st.session_state.carrito:
                 neto = fmt_currency(row['Neto_Calculado'])
                 iva_monto = fmt_currency(row['Monto_IVA'])
 
-                # Preparar el texto de descripción
+                # Preparar el texto de descripción (sin duplicar, una sola vez)
                 if es_einhell:
                     desc_text = sanitize_text(str(row.get('Descripcion', ''))).strip()
                     if row['Es_Oferta']:
@@ -982,93 +998,71 @@ if st.session_state.carrito:
                     if emb or caja or unidad:
                         desc_text += f" | {emb} {caja} {unidad}".strip()
 
-                # Si desc_text es "nan" o vacío, lo dejamos vacío
+                # Limpiar valores "nan"
                 if desc_text in ("nan", "None", ""):
                     desc_text = ""
 
-                # Calcular altura necesaria para la descripción usando MultiCell
-                # Primero, dibujamos la descripción en un buffer para obtener la altura
-                pdf.set_font("Arial", '', FONT_SIZE_SMALL)
-                desc_width = PAGE_WIDTH  # Ocupa todo el ancho
-                # Usamos MultiCell para calcular la altura
-                desc_height = pdf.get_string_width(desc_text)  # No es exacto, mejor usar MultiCell
-                # Usamos una aproximación: MultiCell con ancho y luego get_y
-                # Guardamos posición Y actual
-                y_before = pdf.get_y()
-                # Simulamos el MultiCell para calcular altura
-                pdf.set_x(MARGIN_LEFT)
-                pdf.multi_cell(desc_width, 4, desc_text, border=0, align='L')
-                y_after = pdf.get_y()
-                desc_height = y_after - y_before
-                # Restauramos posición Y
-                pdf.set_y(y_before)
+                # Truncar descripción a máximo 2 líneas
+                desc_text = truncate_description(desc_text, max_lines=2)
 
-                # Altura de la línea principal: fija pero al menos 6, y si desc_height es mayor, la ajustamos
-                main_height = max(6, desc_height if desc_height > 6 else 6)
-
-                # Dibujamos la fila principal
+                # --- 1. Dibujar la fila principal ---
                 pdf.set_x(MARGIN_LEFT)
                 pdf.set_font("Arial", '', FONT_SIZE)
                 pdf.set_text_color(0, 0, 0)
                 pdf.set_fill_color(255, 255, 255)
 
-                # Usamos celdas con altura main_height
-                # Para los textos largos, truncamos con "..." pero sin cortar palabras (usamos MultiCell para la descripción)
-                # En la fila principal, los campos son cortos, podemos usar Cell
+                # Altura fija de 6mm para la fila principal
+                row_height = 6
+
                 if es_einhell:
-                    herramienta = sanitize_text(str(row.get('Herramienta', '')))[:36]  # limitamos pero no cortamos palabras? Mejor truncamos con ...
-                    pdf.cell(widths[0], main_height, codigo[:12], border=0, align='L')
-                    pdf.cell(widths[1], main_height, marca_text[:12], border=0, align='L')
-                    pdf.cell(widths[2], main_height, herramienta, border=0, align='L')
-                    pdf.cell(widths[3], main_height, cant, border=0, align='C')
-                    pdf.cell(widths[4], main_height, p_unit, border=0, align='R')
-                    pdf.cell(widths[5], main_height, iva_text, border=0, align='C')
-                    pdf.cell(widths[6], main_height, subtotal, border=0, align='R')
-                    pdf.cell(widths[7], main_height, descuento, border=0, align='R')
-                    pdf.cell(widths[8], main_height, neto, border=0, align='R')
-                    pdf.cell(widths[9], main_height, iva_monto, border=0, align='R')
+                    herramienta = sanitize_text(str(row.get('Herramienta', '')))[:38]
+                    pdf.cell(widths[0], row_height, codigo, border=0, align='L')
+                    pdf.cell(widths[1], row_height, marca_text, border=0, align='L')
+                    pdf.cell(widths[2], row_height, herramienta, border=0, align='L')
+                    pdf.cell(widths[3], row_height, cant, border=0, align='C')
+                    pdf.cell(widths[4], row_height, p_unit, border=0, align='R')
+                    pdf.cell(widths[5], row_height, iva_text, border=0, align='C')
+                    pdf.cell(widths[6], row_height, subtotal, border=0, align='R')
+                    pdf.cell(widths[7], row_height, descuento, border=0, align='R')
+                    pdf.cell(widths[8], row_height, neto, border=0, align='R')
+                    pdf.cell(widths[9], row_height, iva_monto, border=0, align='R')
                 else:
-                    modelo = sanitize_text(str(row.get('Modelo', '')))[:34]
-                    pdf.cell(widths[0], main_height, codigo[:12], border=0, align='L')
-                    pdf.cell(widths[1], main_height, marca_text[:12], border=0, align='L')
-                    pdf.cell(widths[2], main_height, modelo, border=0, align='L')
-                    pdf.cell(widths[3], main_height, cant, border=0, align='C')
-                    pdf.cell(widths[4], main_height, p_unit, border=0, align='R')
-                    pdf.cell(widths[5], main_height, iva_text, border=0, align='C')
-                    pdf.cell(widths[6], main_height, subtotal, border=0, align='R')
-                    pdf.cell(widths[7], main_height, descuento, border=0, align='R')
-                    pdf.cell(widths[8], main_height, neto, border=0, align='R')
-                    pdf.cell(widths[9], main_height, iva_monto, border=0, align='R')
+                    modelo = sanitize_text(str(row.get('Modelo', '')))[:36]
+                    pdf.cell(widths[0], row_height, codigo, border=0, align='L')
+                    pdf.cell(widths[1], row_height, marca_text, border=0, align='L')
+                    pdf.cell(widths[2], row_height, modelo, border=0, align='L')
+                    pdf.cell(widths[3], row_height, cant, border=0, align='C')
+                    pdf.cell(widths[4], row_height, p_unit, border=0, align='R')
+                    pdf.cell(widths[5], row_height, iva_text, border=0, align='C')
+                    pdf.cell(widths[6], row_height, subtotal, border=0, align='R')
+                    pdf.cell(widths[7], row_height, descuento, border=0, align='R')
+                    pdf.cell(widths[8], row_height, neto, border=0, align='R')
+                    pdf.cell(widths[9], row_height, iva_monto, border=0, align='R')
                 pdf.ln()
 
-                # Dibujamos la descripción secundaria con MultiCell (fondo gris)
+                # --- 2. Imprimir la descripción secundaria (si existe) debajo de la fila ---
                 if desc_text:
+                    # Movemos el cursor a la izquierda
                     pdf.set_x(MARGIN_LEFT)
+                    # Fondo gris claro para la descripción
                     pdf.set_fill_color(LIGHT_GRAY[0], LIGHT_GRAY[1], LIGHT_GRAY[2])
                     pdf.set_text_color(GRAY_TEXT[0], GRAY_TEXT[1], GRAY_TEXT[2])
                     pdf.set_font("Arial", '', FONT_SIZE_SMALL)
-                    # Usamos MultiCell para que haga wrap automático
-                    pdf.multi_cell(desc_width, 4, desc_text, border=0, align='L', fill=True)
-                else:
-                    # Si no hay descripción, solo avanzamos un poco
-                    pdf.set_y(pdf.get_y() + 2)
+                    # Imprimir la descripción con MultiCell (ocupando todo el ancho)
+                    pdf.multi_cell(PAGE_WIDTH, 4, desc_text, border=0, align='L', fill=True)
+                    pdf.set_text_color(0, 0, 0)
+                    pdf.set_fill_color(255, 255, 255)
 
-                pdf.set_text_color(0, 0, 0)
-                pdf.set_fill_color(255, 255, 255)
-
-                # Espacio entre productos (6 mm)
+                # --- 3. Espacio entre productos (6 mm) ---
                 pdf.set_x(MARGIN_LEFT)
                 pdf.cell(0, 6, "", border=0)
 
             def draw_subtotal_block(marca, bruto, descuento, neto, iva, total):
-                """Dibuja un bloque de subtotal con fondo gris claro."""
                 pdf.set_draw_color(200, 200, 200)
                 pdf.line(MARGIN_LEFT, pdf.get_y(), MARGIN_LEFT + PAGE_WIDTH, pdf.get_y())
                 pdf.ln(2)
 
-                # Bloque con fondo gris
                 pdf.set_fill_color(LIGHT_GRAY[0], LIGHT_GRAY[1], LIGHT_GRAY[2])
-                pdf.set_x(MARGIN_LEFT)
                 pdf.rect(MARGIN_LEFT, pdf.get_y(), PAGE_WIDTH, 24, 'F')
                 pdf.set_y(pdf.get_y() + 2)
 
@@ -1079,24 +1073,21 @@ if st.session_state.carrito:
 
                 pdf.set_font("Arial", '', 7)
                 pdf.set_x(MARGIN_LEFT + 4)
-                # Distribuir en columnas
                 labels = ["Bruto", "Descuento", "Neto", "IVA", "TOTAL"]
                 values = [bruto, descuento, neto, iva, total]
                 for lbl, val in zip(labels, values):
                     pdf.cell(35, 5, sanitize_text(f"{lbl}: {fmt_currency(val)}"), border=0, align='L')
                 pdf.ln()
-                pdf.set_y(pdf.get_y() + 2)  # padding inferior
+                pdf.set_y(pdf.get_y() + 2)
                 pdf.ln(4)
 
             def draw_final_summary(total_bruto, total_descuento, total_neto, total_iva, total_final, texto_descuentos):
-                """Dibuja el resumen final con totales destacados."""
                 pdf.ln(8)
                 pdf.set_font("Arial", 'B', 10)
                 pdf.set_text_color(0, 0, 0)
                 pdf.cell(0, 8, sanitize_text(f"Descuentos aplicados: {texto_descuentos}"), ln=True)
                 pdf.ln(4)
 
-                # Bloque de totales con fondo gris claro
                 pdf.set_fill_color(LIGHT_GRAY[0], LIGHT_GRAY[1], LIGHT_GRAY[2])
                 pdf.rect(MARGIN_LEFT, pdf.get_y(), PAGE_WIDTH, 42, 'F')
                 pdf.set_y(pdf.get_y() + 4)
@@ -1123,11 +1114,10 @@ if st.session_state.carrito:
                 pdf.cell(80, 8, fmt_currency(total_iva), border=0, align='R')
                 pdf.ln()
 
-                pdf.set_y(pdf.get_y() + 2)  # padding inferior
+                pdf.set_y(pdf.get_y() + 2)
                 draw_separator_line()
                 pdf.ln(4)
 
-                # TOTAL FINAL destacado
                 pdf.set_font("Arial", 'B', FONT_SIZE_TOTAL)
                 pdf.set_text_color(0, 0, 0)
                 pdf.cell(100, 12, "TOTAL FINAL:", border=0, align='R')
@@ -1172,7 +1162,7 @@ if st.session_state.carrito:
 
                 draw_brand_header(marca, color_rgb, len(subset))
 
-                # Definir anchos (igual que en draw_table_header)
+                # Definir anchos
                 if es_einhell:
                     widths = [13, 13, 40, 8, 17, 10, 20, 14, 19, 15]
                 else:
@@ -1192,7 +1182,7 @@ if st.session_state.carrito:
                 total_marca = neto_marca + iva_marca
                 draw_subtotal_block(marca, bruto_marca, desc_marca, neto_marca, iva_marca, total_marca)
 
-                # Espacio adicional entre marcas (10 mm)
+                # Espacio entre marcas
                 pdf.set_x(MARGIN_LEFT)
                 pdf.cell(0, 10, "", border=0)
 
