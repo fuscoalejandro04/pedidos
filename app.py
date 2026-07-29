@@ -35,12 +35,12 @@ def sanitize_text(text):
     text = ''.join(c for c in text if not unicodedata.combining(c))
     text = text.replace('ñ', 'n').replace('Ñ', 'N')
     replacements = {
-        '€': 'EUR', '°': 'grados', '▸': '-', '•': '-', '●': '-',
-        '→': '->', '←': '<-', '…': '...', '—': '-', '–': '-',
+        '€': 'EUR', '°': 'grados', '▸': '-', '•': '-', '●': 'o',
+        '→': '>>', '←': '<-', '…': '...', '—': '-', '–': '-',
         '"': "'", '´': "'", '`': "'", '·': '.', 'ª': 'a', 'º': 'o',
         '█': '#', '▓': '#', '▒': '#', '░': '#', '◆': 'o', '■': '#',
         '▲': '^', '▼': 'v', '☑': '[x]', '☐': '[ ]', '★': '*', '☆': '*',
-        '✓': 'v', '✗': 'x', '►': '-', '•': '-', '●': '-', '◆': 'o'
+        '✓': 'v', '✗': 'x', '►': '-', '•': '-', '●': 'o', '◆': 'o'
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
@@ -1034,7 +1034,7 @@ if st.session_state.carrito:
                 Dibuja un producto con jerarquía:
                 - Línea 1: [Código - Nombre] (negrita)  y  [CANTIDAD] (grande, negrita, derecha)
                 - Línea 2: detalles (cursiva, pequeño) si existen
-                - Línea 3: PU: $xxx  IVA: xx%  Descuento: -$xxx  (pequeño, gris)  → TOTAL: $xxx (negrita)
+                - Línea 3: PU: $xxx  IVA: xx%  Descuento: -$xxx  (pequeño, gris)  >> TOTAL: $xxx (negrita)
                 """
                 # Preparar datos
                 codigo = clean_text(str(row['Codigo']))[:12]
@@ -1136,11 +1136,11 @@ if st.session_state.carrito:
                 else:
                     pdf.cell(45, 5, "", border=0, align="L")
 
-                # Total de línea (destacado, a la derecha)
+                # Total de línea (destacado, a la derecha) - usamos ">>" en lugar de flecha
                 pdf.set_x(MARGIN_LEFT + PAGE_WIDTH - 70)
                 pdf.set_font("Arial", "B", FS_TOTAL_LINE)
                 pdf.set_text_color(0, 0, 0)
-                pdf.cell(70, 5, f"→ TOTAL: {fmt_currency(total_linea)}", border=0, align="R")
+                pdf.cell(70, 5, f">> TOTAL: {fmt_currency(total_linea)}", border=0, align="R")
                 pdf.ln(5.5)
 
                 # Separador
@@ -1237,7 +1237,7 @@ if st.session_state.carrito:
                     g = int(hex_color[3:5], 16)
                     b = int(hex_color[5:7], 16)
                     pdf.set_text_color(r, g, b)
-                    pdf.cell(12, 3.5, "●", border=0)
+                    pdf.cell(12, 3.5, "o", border=0)  # reemplazo de ● por o
                     pdf.ln(3)
                 pdf.set_text_color(0, 0, 0)
 
