@@ -28,6 +28,7 @@ def normalize_text(text):
     return text.lower()
 
 def sanitize_text(text):
+    """Convierte texto a ASCII seguro, eliminando tildes y caracteres especiales."""
     if not isinstance(text, str):
         text = str(text)
     text = unicodedata.normalize('NFKD', text)
@@ -39,10 +40,11 @@ def sanitize_text(text):
         '"': "'", '´': "'", '`': "'", '·': '.', 'ª': 'a', 'º': 'o',
         '█': '#', '▓': '#', '▒': '#', '░': '#', '◆': 'o', '■': '#',
         '▲': '^', '▼': 'v', '☑': '[x]', '☐': '[ ]', '★': '*', '☆': '*',
-        '✓': 'v', '✗': 'x'
+        '✓': 'v', '✗': 'x', '►': '-', '•': '-', '●': '-', '◆': 'o'
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
+    # Eliminar cualquier carácter que no esté en el rango ASCII imprimible
     text = ''.join(c for c in text if 32 <= ord(c) <= 126)
     return text
 
@@ -902,7 +904,7 @@ if st.session_state.carrito:
                 pdf.set_x(MARGIN_LEFT + PAGE_WIDTH - 80)
                 pdf.set_font("Arial", "B", FS_TITLE)
                 pdf.set_text_color(0, 0, 0)
-                pdf.cell(80, 11, "PROFORMA DE PEDIDO", ln=True, align="R")
+                pdf.cell(80, 11, clean_text("PROFORMA DE PEDIDO"), ln=True, align="R")
                 pdf.ln(3)
 
             def draw_client_block(pdf, cli_info, cliente_seleccionado, direccion_entrega, retira_local):
@@ -920,17 +922,18 @@ if st.session_state.carrito:
 
                 # Fila 1: Cliente (con código)  |  Fecha
                 pdf.set_x(MARGIN_LEFT)
+                cliente_clean = clean_text(cliente_seleccionado)
                 if codigo_cliente and pd.notna(codigo_cliente):
-                    pdf.cell(PAGE_WIDTH * 0.55, 5, f"Cliente: {clean_text(cliente_seleccionado)} (Cód: {codigo_cliente})", border=0)
+                    pdf.cell(PAGE_WIDTH * 0.55, 5, f"Cliente: {cliente_clean} (Cód: {clean_text(str(codigo_cliente))})", border=0)
                 else:
-                    pdf.cell(PAGE_WIDTH * 0.55, 5, f"Cliente: {clean_text(cliente_seleccionado)}", border=0)
+                    pdf.cell(PAGE_WIDTH * 0.55, 5, f"Cliente: {cliente_clean}", border=0)
                 pdf.cell(PAGE_WIDTH * 0.45, 5, f"Fecha: {fecha}", border=0, align="R")
                 pdf.ln(5)
 
                 # Fila 2: CUIT  |  Vendedor
                 pdf.set_x(MARGIN_LEFT)
-                pdf.cell(PAGE_WIDTH * 0.55, 5, f"CUIT: {cuit}", border=0)
-                pdf.cell(PAGE_WIDTH * 0.45, 5, f"Vendedor: {vendedor}", border=0, align="R")
+                pdf.cell(PAGE_WIDTH * 0.55, 5, f"CUIT: {clean_text(str(cuit))}", border=0)
+                pdf.cell(PAGE_WIDTH * 0.45, 5, f"Vendedor: {clean_text(str(vendedor))}", border=0, align="R")
                 pdf.ln(5)
 
                 # Fila 3: Dirección del cliente  |  Condición de pago
@@ -939,7 +942,7 @@ if st.session_state.carrito:
                     pdf.cell(PAGE_WIDTH * 0.55, 5, clean_text(direccion_cliente), border=0)
                 else:
                     pdf.cell(PAGE_WIDTH * 0.55, 5, "", border=0)
-                pdf.cell(PAGE_WIDTH * 0.45, 5, f"Condición: {condicion}", border=0, align="R")
+                pdf.cell(PAGE_WIDTH * 0.45, 5, f"Condición: {clean_text(str(condicion))}", border=0, align="R")
                 pdf.ln(5)
 
                 # Fila 4: Entrega  |  (vacío o información adicional)
@@ -966,7 +969,7 @@ if st.session_state.carrito:
                 pdf.set_font("Arial", "B", FS_BRAND)
                 pdf.set_text_color(color[0], color[1], color[2])
                 pdf.set_x(MARGIN_LEFT)
-                pdf.cell(PAGE_WIDTH, 6, f"► {marca} ({count} productos)", ln=True)
+                pdf.cell(PAGE_WIDTH, 6, clean_text(f"- {marca} ({count} productos)"), ln=True)
                 pdf.set_text_color(0, 0, 0)
                 pdf.ln(1)
 
@@ -987,13 +990,13 @@ if st.session_state.carrito:
                 # Construir detalles
                 detalles = []
                 if pd.notna(row.get('Color')) and row['Color']:
-                    detalles.append(f"Color: {clean_text(row['Color'])}")
+                    detalles.append(f"Color: {clean_text(str(row['Color']))}")
                 if pd.notna(row.get('Embalaje')) and row['Embalaje']:
-                    detalles.append(f"Emb: {clean_text(row['Embalaje'])}")
+                    detalles.append(f"Emb: {clean_text(str(row['Embalaje']))}")
                 if pd.notna(row.get('CantidadPorCaja')) and row['CantidadPorCaja']:
-                    detalles.append(f"Caja: {clean_text(row['CantidadPorCaja'])}")
+                    detalles.append(f"Caja: {clean_text(str(row['CantidadPorCaja']))}")
                 if pd.notna(row.get('UnidadPrecio')) and row['UnidadPrecio']:
-                    detalles.append(f"Unidad: {clean_text(row['UnidadPrecio'])}")
+                    detalles.append(f"Unidad: {clean_text(str(row['UnidadPrecio']))}")
                 if not es_einhell and not detalles:
                     detalles.append(clean_text(str(row.get('Descripcion', ''))))
                 texto_detalles = " | ".join(detalles) if detalles else ""
@@ -1042,7 +1045,6 @@ if st.session_state.carrito:
 
                 cant = int(row['Cantidad']) if row['Cantidad'].is_integer() else row['Cantidad']
                 p_unit = row['Precio_Unitario']
-                subtotal = row['Subtotal_Bruto']
                 descuento = row['Monto_Descuento']
                 neto = row['Neto_Calculado']
                 iva_monto = row['Monto_IVA']
@@ -1053,13 +1055,13 @@ if st.session_state.carrito:
                 # Construir detalles
                 detalles = []
                 if pd.notna(row.get('Color')) and row['Color']:
-                    detalles.append(f"Color: {clean_text(row['Color'])}")
+                    detalles.append(f"Color: {clean_text(str(row['Color']))}")
                 if pd.notna(row.get('Embalaje')) and row['Embalaje']:
-                    detalles.append(f"Emb: {clean_text(row['Embalaje'])}")
+                    detalles.append(f"Emb: {clean_text(str(row['Embalaje']))}")
                 if pd.notna(row.get('CantidadPorCaja')) and row['CantidadPorCaja']:
-                    detalles.append(f"Caja: {clean_text(row['CantidadPorCaja'])}")
+                    detalles.append(f"Caja: {clean_text(str(row['CantidadPorCaja']))}")
                 if pd.notna(row.get('UnidadPrecio')) and row['UnidadPrecio']:
-                    detalles.append(f"Unidad: {clean_text(row['UnidadPrecio'])}")
+                    detalles.append(f"Unidad: {clean_text(str(row['UnidadPrecio']))}")
                 if not es_einhell and not detalles:
                     detalles.append(clean_text(str(row.get('Descripcion', ''))))
                 texto_detalles = " | ".join(detalles) if detalles else ""
@@ -1154,7 +1156,7 @@ if st.session_state.carrito:
                 pdf.set_font("Arial", "B", FS_SUBTOTAL)
                 pdf.set_text_color(0, 0, 0)
                 pdf.set_x(MARGIN_LEFT)
-                pdf.cell(0, 5.5, f"Subtotal {marca}", ln=True)
+                pdf.cell(0, 5.5, clean_text(f"Subtotal {marca}"), ln=True)
                 pdf.set_font("Arial", "", FS_SUBTOTAL - 1)
                 pdf.set_x(MARGIN_LEFT)
                 items = [
@@ -1176,7 +1178,7 @@ if st.session_state.carrito:
                 pdf.set_font("Arial", "B", FS_SUBTOTAL)
                 pdf.set_text_color(0, 0, 0)
                 pdf.set_x(MARGIN_LEFT)
-                pdf.cell(0, 6, f"Descuentos aplicados: {texto_descuentos}", ln=True)
+                pdf.cell(0, 6, clean_text(f"Descuentos aplicados: {texto_descuentos}"), ln=True)
                 pdf.ln(3)
 
                 block_width = 80
@@ -1230,7 +1232,7 @@ if st.session_state.carrito:
                 for marca, hex_color in MARCAS_COLORS_HEX.items():
                     pdf.set_x(MARGIN_LEFT)
                     pdf.set_text_color(0, 0, 0)
-                    pdf.cell(20, 3.5, f"{marca}:", border=0)
+                    pdf.cell(20, 3.5, clean_text(f"{marca}:"), border=0)
                     r = int(hex_color[1:3], 16)
                     g = int(hex_color[3:5], 16)
                     b = int(hex_color[5:7], 16)
