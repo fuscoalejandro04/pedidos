@@ -17,7 +17,7 @@ if 'carrito' not in st.session_state:
     st.session_state.carrito = []
 
 # ------------------------------------------------------------
-# FUNCIONES AUXILIARES
+# FUNCIONES AUXILIARES (sin cambios)
 # ------------------------------------------------------------
 def normalize_text(text):
     if not isinstance(text, str):
@@ -866,18 +866,51 @@ if st.session_state.carrito:
                 st.stop()
 
             # ==============================================================
-            # GENERACIÓN DE PDF CON ENCABEZADOS Y SUBENCABEZADOS MEJORADOS
+            # NUEVA GENERACIÓN DE PDF OPTIMIZADA Y SIN SUPERPOSICIONES
             # ==============================================================
 
             pdf = FPDF()
             pdf.set_auto_page_break(auto=True, margin=15)
-            pdf.set_margins(left=15, top=15, right=15)
+            pdf.set_margins(left=12, top=12, right=12)
             pdf.add_page()
 
-            # Constantes de diseño
+            # Constantes
             MARGIN_LEFT = 12
-            MARGIN_RIGHT = 12
-            PAGE_WIDTH = 210 - MARGIN_LEFT - MARGIN_RIGHT
+            PAGE_WIDTH = 210 - 2 * MARGIN_LEFT
+            # Anchos de columna (en mm) para 10 columnas
+            # Ajustados para que sumen PAGE_WIDTH (aprox 186 mm)
+            W = [15, 15, 38, 10, 18, 12, 20, 15, 20, 18]  # total = 161? Necesitamos sumar 186, ajustemos.
+            # Recalcular para sumar exactamente PAGE_WIDTH.
+            # Proporciones: codigo:marca:modelo:cant:p_unit:iva:subtotal:desc:neto:iva_monto
+            # Usaremos distribución: codigo 14, marca 14, modelo 35, cant 9, p_unit 16, iva 11, subtotal 19, desc 14, neto 19, iva_monto 16 -> total 167, dejamos 19 para separaciones internas? Mejor usar exacto.
+            # Fijemos: codigo=13, marca=13, modelo=38, cant=8, p_unit=16, iva=10, subtotal=19, desc=13, neto=19, iva_monto=15 => suma 164, sobra 22 para márgenes internos? No, queremos que ocupen todo el ancho.
+            # Usemos porcentajes: codigo 7%, marca 7%, modelo 20%, cant 5%, p_unit 9%, iva 6%, subtotal 11%, desc 8%, neto 11%, iva_monto 8% -> suman 92%, dejamos 8% para separaciones? Mejor usar el 100%.
+            # Vamos a definir una lista de anchos que sumen PAGE_WIDTH exactamente.
+            # Proporciones manuales:
+            # codigo 14, marca 14, modelo 34, cant 9, p_unit 17, iva 11, subtotal 19, desc 15, neto 19, iva_monto 17 -> total 169, faltan 17 para 186.
+            # Mejor usar un diccionario y luego escalar.
+            target_widths = {
+                'codigo': 13,
+                'marca': 13,
+                'modelo': 36,
+                'cant': 8,
+                'p_unit': 16,
+                'iva': 10,
+                'subtotal': 19,
+                'desc': 13,
+                'neto': 19,
+                'iva_monto': 15
+            }
+            total_target = sum(target_widths.values())  # 162
+            scale = PAGE_WIDTH / total_target
+            W = [int(round(target_widths[k] * scale)) for k in target_widths]
+            # Ajustar para que sumen exactamente PAGE_WIDTH (puede haber redondeo)
+            diff = PAGE_WIDTH - sum(W)
+            if diff != 0:
+                # Repartir el excedente en las columnas más grandes
+                for i in range(abs(diff)):
+                    W[i % len(W)] += 1 if diff > 0 else -1
+
             FONT_SIZE_TITLE = 22
             FONT_SIZE_HEADER = 11
             FONT_SIZE_LEVEL1 = 9
@@ -886,31 +919,10 @@ if st.session_state.carrito:
             FONT_SIZE_TOTAL = 14
             COLOR_HEADER = (60, 60, 60)
             COLOR_SUBHEADER = (100, 100, 100)
-            COLOR_LEVEL1 = (0, 0, 0)
-            COLOR_LEVEL2 = (68, 68, 68)
-            COLOR_LEVEL3 = (136, 136, 136)
             DARK_GRAY = (40, 40, 40)
-            SEPARATOR_COLOR = (230, 230, 230)
-            PADDING_BETWEEN_PRODUCTS = 4
-            PADDING_AFTER_DESC = 2
+            SEPARATOR_COLOR = (220, 220, 220)
 
-            # Anchos de columna redistribuidos
-            W = {
-                'codigo': 13,
-                'marca': 13,
-                'modelo': 38,
-                'cant': 8,
-                'p_unit': 16,
-                'iva': 10,
-                'subtotal': 19,
-                'desc': 13,
-                'neto': 19,
-                'iva_monto': 15,
-            }
-            W_EINHELL = [W['codigo'], W['marca'], W['modelo'], W['cant'], W['p_unit'], W['iva'], W['subtotal'], W['desc'], W['neto'], W['iva_monto']]
-            W_OTRAS = W_EINHELL
-
-            # ---- FUNCIONES DE DIBUJO ----
+            # ---- Funciones de dibujo (simplificadas y robustas) ----
 
             def draw_main_title():
                 pdf.set_x(MARGIN_LEFT + PAGE_WIDTH - 100)
@@ -947,7 +959,7 @@ if st.session_state.carrito:
                 else:
                     pdf.cell(0, 6, clean_text("Entrega: En dirección del cliente (sin especificar)"), ln=True)
                 pdf.cell(0, 6, clean_text(f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}"), ln=True)
-                pdf.ln(10)
+                pdf.ln(8)
 
             def draw_brand_header(marca, count, color_rgb):
                 pdf.set_font("Arial", 'B', FONT_SIZE_HEADER)
@@ -964,21 +976,18 @@ if st.session_state.carrito:
                 pdf.set_fill_color(color_rgb[0], color_rgb[1], color_rgb[2])
                 pdf.set_text_color(255, 255, 255)
                 pdf.set_x(MARGIN_LEFT)
-
                 if es_einhell:
                     headers = ["Código", "Marca", "Herramienta", "Cant", "P.Unit", "IVA%", "Subtotal", "Desc.", "Neto", "IVA"]
-                    widths = W_EINHELL
                 else:
                     headers = ["Código", "Marca", "Modelo", "Cant", "P.Unit", "IVA%", "Subtotal", "Desc.", "Neto", "IVA"]
-                    widths = W_OTRAS
-
                 for i, h in enumerate(headers):
-                    pdf.cell(widths[i], 9, clean_text(h), border=0, align='C', fill=True)
+                    pdf.cell(W[i], 8, clean_text(h), border=0, align='C', fill=True)
                 pdf.ln()
                 pdf.set_text_color(0, 0, 0)
                 pdf.set_fill_color(255, 255, 255)
 
             def draw_product_row(row, es_einhell):
+                # Preparar datos
                 codigo = clean_text(str(row['Codigo']))[:12]
                 marca_text = clean_text(str(row['Marca']))[:12]
                 cant = str(int(row['Cantidad'])) if row['Cantidad'].is_integer() else f"{row['Cantidad']:.1f}"
@@ -994,6 +1003,7 @@ if st.session_state.carrito:
                 else:
                     producto_nombre = clean_text(str(row.get('Modelo', '')))[:42]
 
+                # Descripción con información extra
                 desc_text = clean_text(str(row.get('Descripcion', '')))
                 if row['Es_Oferta']:
                     desc_text = "OFERTA " + desc_text
@@ -1008,57 +1018,54 @@ if st.session_state.carrito:
                     if emb or caja or unidad:
                         desc_text += f" | Emb: {emb} Caja: {caja} Unidad: {unidad}"
 
-                widths = W_EINHELL if es_einhell else W_OTRAS
-
-                if pdf.get_y() > 250:
+                # Verificar espacio
+                if pdf.get_y() > 240:
                     pdf.add_page()
-                    draw_table_header(es_einhell, MARCAS_COLORS.get(marca, (100,100,100)))
+                    draw_table_header(es_einhell, MARCAS_COLORS.get(row['Marca'], (100,100,100)))
 
-                # Nivel 1
+                # Fila 1: código, marca, nombre, cantidad
                 pdf.set_x(MARGIN_LEFT)
                 pdf.set_font("Arial", 'B', FONT_SIZE_LEVEL1)
-                pdf.set_text_color(COLOR_LEVEL1[0], COLOR_LEVEL1[1], COLOR_LEVEL1[2])
-
-                pdf.cell(widths[0], 7, codigo, border=0, align='L')
-                pdf.cell(widths[1], 7, marca_text, border=0, align='L')
-                pdf.cell(widths[2], 7, producto_nombre, border=0, align='L')
-                pdf.cell(widths[3], 7, cant, border=0, align='C')
-                for i in range(4, len(widths)):
-                    pdf.cell(widths[i], 7, "", border=0, align='R' if i in (4,6,7,8,9) else 'C')
+                pdf.set_text_color(0, 0, 0)
+                pdf.cell(W[0], 6, codigo, border=0, align='L')
+                pdf.cell(W[1], 6, marca_text, border=0, align='L')
+                pdf.cell(W[2], 6, producto_nombre, border=0, align='L')
+                pdf.cell(W[3], 6, cant, border=0, align='C')
+                # Las siguientes celdas vacías (se llenan en la siguiente línea)
+                for i in range(4, 10):
+                    pdf.cell(W[i], 6, "", border=0, align='R' if i in (4,6,7,8,9) else 'C')
                 pdf.ln()
 
-                # Nivel 2
+                # Fila 2: precios y montos
                 pdf.set_x(MARGIN_LEFT)
                 pdf.set_font("Arial", '', FONT_SIZE_LEVEL2)
-                pdf.set_text_color(COLOR_LEVEL2[0], COLOR_LEVEL2[1], COLOR_LEVEL2[2])
-
-                pdf.cell(widths[0], 6, "", border=0, align='L')
-                pdf.cell(widths[1], 6, "", border=0, align='L')
-                pdf.cell(widths[2], 6, "", border=0, align='L')
-                pdf.cell(widths[3], 6, "", border=0, align='C')
-                pdf.cell(widths[4], 6, p_unit, border=0, align='R')
-                pdf.cell(widths[5], 6, iva_text, border=0, align='C')
-                pdf.cell(widths[6], 6, subtotal, border=0, align='R')
-                pdf.cell(widths[7], 6, descuento, border=0, align='R')
-                pdf.cell(widths[8], 6, neto, border=0, align='R')
-                pdf.cell(widths[9], 6, iva_monto, border=0, align='R')
+                pdf.set_text_color(50, 50, 50)
+                pdf.cell(W[0], 6, "", border=0)
+                pdf.cell(W[1], 6, "", border=0)
+                pdf.cell(W[2], 6, "", border=0)
+                pdf.cell(W[3], 6, "", border=0)
+                pdf.cell(W[4], 6, p_unit, border=0, align='R')
+                pdf.cell(W[5], 6, iva_text, border=0, align='C')
+                pdf.cell(W[6], 6, subtotal, border=0, align='R')
+                pdf.cell(W[7], 6, descuento, border=0, align='R')
+                pdf.cell(W[8], 6, neto, border=0, align='R')
+                pdf.cell(W[9], 6, iva_monto, border=0, align='R')
                 pdf.ln()
 
-                # Nivel 3
+                # Fila 3: descripción (ocupa todo el ancho)
                 if desc_text.strip():
                     pdf.set_x(MARGIN_LEFT + 2)
                     pdf.set_font("Arial", 'I', FONT_SIZE_LEVEL3)
-                    pdf.set_text_color(COLOR_LEVEL3[0], COLOR_LEVEL3[1], COLOR_LEVEL3[2])
+                    pdf.set_text_color(100, 100, 100)
+                    # Usamos multi_cell con el ancho total de la tabla
                     pdf.multi_cell(PAGE_WIDTH - 4, 4.5, desc_text, border=0, align='L')
                 else:
                     pdf.ln(2)
 
-                pdf.set_text_color(0, 0, 0)
-                pdf.set_font("Arial", '', FONT_SIZE_LEVEL2)
-                pdf.set_y(pdf.get_y() + PADDING_AFTER_DESC)
+                # Separador
                 pdf.set_draw_color(*SEPARATOR_COLOR)
                 pdf.line(MARGIN_LEFT, pdf.get_y(), MARGIN_LEFT + PAGE_WIDTH, pdf.get_y())
-                pdf.ln(PADDING_BETWEEN_PRODUCTS)
+                pdf.ln(3)
 
             def draw_subtotal_block(marca, bruto, descuento, neto, iva, total):
                 if pdf.get_y() > 220:
@@ -1161,7 +1168,7 @@ if st.session_state.carrito:
                     pdf.ln(4)
                 pdf.set_text_color(0, 0, 0)
 
-            # ---- INICIO DE LA GENERACIÓN DEL PDF ----
+            # ---- Construcción del PDF ----
             draw_main_title()
             draw_section_separator()
             draw_client_block()
@@ -1175,7 +1182,6 @@ if st.session_state.carrito:
 
                 if pdf.get_y() > 200 and idx_marca > 0:
                     pdf.add_page()
-                    pdf.set_auto_page_break(auto=True, margin=15)
 
                 draw_brand_header(marca, len(subset), color_rgb)
                 draw_table_header(es_einhell, color_rgb)
@@ -1196,7 +1202,7 @@ if st.session_state.carrito:
             draw_final_summary(total_bruto, total_descuento, total_neto, total_iva, total_final, texto_descuentos)
             draw_footer_notes()
 
-            # ---- GUARDAR Y DESCARGAR ----
+            # ---- Guardar y descargar ----
             fd, path = tempfile.mkstemp(suffix=".pdf")
             try:
                 pdf.output(path)
@@ -1211,6 +1217,8 @@ if st.session_state.carrito:
                 st.success("✅ PDF generado exitosamente.")
             finally:
                 os.close(fd)
+                if os.path.exists(path):
+                    os.remove(path)
 
 else:
     st.info("🛒 El carrito está vacío. Buscá un producto y agregalo al pedido.")
