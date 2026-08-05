@@ -4,3 +4,5 @@ openpyxl
 fpdf
 unidecode
 babel
+streamlit==1.41.0
+starlette==0.41.3
