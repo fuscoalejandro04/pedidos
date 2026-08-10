@@ -283,44 +283,52 @@ def load_databases():
         df_prod['Categoria_Generica'] = None
         df_prod['Tipo_Alimentacion'] = None
 
+    # ------------------------------------------------------------
+    # LECTURA DE OFERTAS (mejorada)
+    # ------------------------------------------------------------
     archivos_oferta = glob.glob("*oferta*.xls*") + glob.glob("*OFERTA*.xls*")
-for archivo in archivos_oferta:
-    try:
-        df_of = pd.read_excel(archivo)
-        df_of.columns = [str(c).strip().upper() for c in df_of.columns]
+    for archivo in archivos_oferta:
+        try:
+            df_of = pd.read_excel(archivo)
+            df_of.columns = [str(c).strip().upper() for c in df_of.columns]
 
-        # Buscar columna de código (ya funciona)
-        col_codigo = "CÓDIGO" if "CÓDIGO" in df_of.columns else "CODIGO" if "CODIGO" in df_of.columns else None
+            # Buscar columna de código
+            col_codigo = "CÓDIGO" if "CÓDIGO" in df_of.columns else "CODIGO" if "CODIGO" in df_of.columns else None
 
-        # Buscar columna de precio: ahora acepta "PVP" o "PRECIO"
-        col_precio = None
-        for c in df_of.columns:
-            if "PRECIO" in c or "PVP" in c:
-                col_precio = c
-                break
+            # Buscar columna de precio: acepta "PRECIO" o "PVP"
+            col_precio = None
+            for c in df_of.columns:
+                if "PRECIO" in c or "PVP" in c:
+                    col_precio = c
+                    break
 
-        if col_codigo and col_precio:
-            df_of_limpio = df_of[[col_codigo, col_precio]].copy()
-            df_of_limpio.columns = ['Codigo', 'Precio_Promocional']
+            if col_codigo and col_precio:
+                df_of_limpio = df_of[[col_codigo, col_precio]].copy()
+                df_of_limpio.columns = ['Codigo', 'Precio_Promocional']
 
-            # LIMPIAR CÓDIGOS: eliminar ".0" al final y espacios
-            df_of_limpio['Codigo'] = df_of_limpio['Codigo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+                # Limpiar códigos: eliminar ".0" final y espacios
+                df_of_limpio['Codigo'] = df_of_limpio['Codigo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
 
-            df_of_limpio['Precio_Promocional'] = pd.to_numeric(df_of_limpio['Precio_Promocional'], errors='coerce').fillna(0)
+                df_of_limpio['Precio_Promocional'] = pd.to_numeric(df_of_limpio['Precio_Promocional'], errors='coerce').fillna(0)
 
-            # Merge con la base de productos (también limpiamos códigos en df_prod)
-            df_prod['Codigo_limpio'] = df_prod['Codigo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-            df_prod = pd.merge(df_prod, df_of_limpio, left_on='Codigo_limpio', right_on='Codigo', how='left')
-            df_prod = df_prod.drop(columns=['Codigo_limpio', 'Codigo_y'])
+                # Crear columna auxiliar en df_prod para merge sin .0
+                df_prod['Codigo_limpio'] = df_prod['Codigo'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
 
-            # Ahora aplicar ofertas
-            condicion_oferta = df_prod['Precio_Promocional'] > 0
-            df_prod.loc[condicion_oferta, 'Precio_Oferta'] = df_prod.loc[condicion_oferta, 'Precio_Promocional']
-            df_prod.loc[condicion_oferta, 'Es_Oferta'] = True
-            df_prod = df_prod.drop(columns=['Precio_Promocional'])
-    except Exception as e:
-        st.sidebar.warning(f"No se pudo procesar el archivo de oferta {archivo}: {e}")
+                # Merge
+                df_prod = pd.merge(df_prod, df_of_limpio, left_on='Codigo_limpio', right_on='Codigo', how='left', suffixes=('', '_oferta'))
 
+                # Aplicar ofertas donde haya precio promocional > 0
+                condicion_oferta = df_prod['Precio_Promocional'] > 0
+                df_prod.loc[condicion_oferta, 'Precio_Oferta'] = df_prod.loc[condicion_oferta, 'Precio_Promocional']
+                df_prod.loc[condicion_oferta, 'Es_Oferta'] = True
+
+                # Eliminar columnas auxiliares
+                df_prod = df_prod.drop(columns=['Codigo_limpio', 'Codigo_oferta', 'Precio_Promocional'], errors='ignore')
+
+        except Exception as e:
+            st.sidebar.warning(f"No se pudo procesar el archivo de oferta {archivo}: {e}")
+
+    # Fin del bloque de ofertas
     return df_cli, df_prod
 
 
