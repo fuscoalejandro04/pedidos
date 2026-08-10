@@ -284,7 +284,8 @@ def load_databases():
         df_prod['Tipo_Alimentacion'] = None
 
     # ------------------------------------------------------------
-        # LECTURA DE OFERTAS (mejorada con manejo de errores)
+    # LECTURA DE OFERTAS (mejorada con manejo de errores)
+    # ------------------------------------------------------------
     archivos_oferta = glob.glob("*oferta*.xls*") + glob.glob("*OFERTA*.xls*")
     st.sidebar.write("📁 Archivos de oferta encontrados:", archivos_oferta)
 
@@ -823,32 +824,55 @@ if st.session_state.carrito:
 
     st.markdown("---")
 
+    # ------------------------------------------------------------
+    # NUEVA SECCIÓN: Detalle de productos interactivo (editar/eliminar)
+    # ------------------------------------------------------------
     st.markdown("#### 📋 Detalle de Productos")
-    base_cols = ['Codigo', 'Marca', 'Modelo', 'Descripcion', 'Cantidad', 'Precio_Unitario', 'IVA', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado', 'Monto_IVA', 'Es_Oferta']
-    extra_cols = []
-    if 'Embalaje' in df_carrito.columns and df_carrito['Embalaje'].notna().any():
-        extra_cols.extend(['Embalaje', 'CantidadPorCaja', 'UnidadPrecio'])
-    if extra_cols:
-        idx = base_cols.index('Descripcion') + 1
-        cols_mostrar = base_cols[:idx] + extra_cols + base_cols[idx:]
-    else:
-        cols_mostrar = base_cols
-    cols_mostrar = [col for col in cols_mostrar if col in df_carrito.columns]
 
-    df_mostrar = df_carrito[cols_mostrar].copy()
-    numeric_cols = ['Precio_Unitario', 'Subtotal_Bruto', 'Monto_Descuento', 'Neto_Calculado', 'Monto_IVA']
-    for col in numeric_cols:
-        if col in df_mostrar.columns:
-            df_mostrar[col] = df_mostrar[col].apply(fmt_currency)
-    if 'IVA' in df_mostrar.columns:
-        df_mostrar['IVA'] = df_mostrar.apply(lambda row: format_iva(row['IVA'], row['Es_Oferta']), axis=1)
-    if 'Es_Oferta' in df_mostrar.columns:
-        df_mostrar['Es_Oferta'] = df_mostrar['Es_Oferta'].apply(lambda x: "🔥 Oferta" if x else "")
+    for idx, item in enumerate(st.session_state.carrito):
+        # Fila con 3 columnas: descripción, cantidad, eliminar
+        col_desc, col_qty, col_btn = st.columns([3, 1, 1])
 
-    st.dataframe(df_mostrar, use_container_width=True)
+        with col_desc:
+            st.markdown(f"**{item['Marca']} - {item['Modelo']}**")
+            st.caption(f"Código: {item['Codigo']} | {item.get('Presentacion_Text', '')}")
+            st.caption(f"Precio unitario: {fmt_currency(item['Precio_Unitario'])}")
+            # Mostrar subtotal del ítem
+            st.caption(f"Subtotal: {fmt_currency(item['Subtotal_Bruto'])}")
+
+        with col_qty:
+            step = item.get('Step', 1.0)
+            min_val = item.get('Min_Value', 0.0)
+            if item.get('Tipo_Cantidad') == 'lotes':
+                label = f"Cant. ({item.get('Unidad_Venta', 'lotes')})"
+            else:
+                label = "Cantidad"
+            nueva_cantidad = st.number_input(
+                label,
+                min_value=0.0 if min_val == 0 else min_val,
+                value=float(item['Cantidad']),
+                step=step,
+                format="%g",
+                key=f"qty_{idx}"
+            )
+            # Si cambió la cantidad, actualizar
+            if nueva_cantidad != item['Cantidad']:
+                # Validar múltiplos
+                if step > 1 and min_val > 0 and nueva_cantidad > 0:
+                    if nueva_cantidad % step != 0:
+                        st.warning(f"La cantidad debe ser múltiplo de {step}. Se ajustará automáticamente.")
+                        nueva_cantidad = ((nueva_cantidad + step - 1) // step) * step
+                update_carrito(idx, nueva_cantidad)
+
+        with col_btn:
+            if st.button("🗑️ Eliminar", key=f"del_{idx}", use_container_width=True):
+                update_carrito(idx, 0)  # 0 elimina el item
+
+        st.divider()
 
     st.markdown("---")
 
+    # Tabla resumen por marca (opcional, se mantiene)
     st.markdown("#### 📦 Resumen por Marca")
     marcas_unicas = sorted(df_carrito['Marca'].unique())
     marca_data = []
@@ -880,6 +904,7 @@ if st.session_state.carrito:
 
     st.markdown("---")
 
+    # Totales finales (repetidos para mantener visibilidad)
     col_tot1, col_tot2, col_tot3, col_tot4, col_tot5 = st.columns(5)
     col_tot1.metric("Subtotal Bruto", fmt_currency(total_bruto))
     col_tot2.metric(f"Descuentos ({texto_descuentos})", fmt_currency(total_descuento))
