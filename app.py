@@ -240,7 +240,6 @@ def load_databases():
         return None, None
 
     product_files = [
-        "KWB_Limpia.xlsx",
         "Einhell_Limpia.xlsx",
         "Fijaciones_Limpia.xlsx",
         "Penosil_Limpia.xlsx"
